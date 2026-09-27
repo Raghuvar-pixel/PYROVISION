@@ -1,1512 +1,821 @@
-/* =================================================================
-   PyroVision - Satellite Disaster Management Platform (PyroVision)
-   Advanced GIS Telemetry, Dynamic Geolocation, AI Assistant & Analytics
-   ================================================================= */
+let mainMap = null;
+let fullMap = null;
+let vectorSource = null;
+let currentLayer = null; 
+let fullMapLayer = null; 
+let userLocationFeature = null;
+let heatmapLayer = null;
+let riskAlertsEnabled = true;
+let weatherEnabled = true;
+let weatherCache = null;
 
-// Global Application State
-const state = { 
-  activeTab: 'home',
-  currentLayer: 'street', // 'dark', 'satellite', 'street' 
-  userCoords: null,
-  userLocationName: 'Locating...',
-  dashboardMap: null,
-  fullMap: null,
-  dashboardLayers: {},
-  fullMapLayers: {},
-  activeMarkersDashboard: [],
-  activeMarkersFull: [],
-  userMarkerDashboard: null,
-  userMarkerFull: null,
-  hotspots: [],
-  activeHotspot: null,
-  alertFilter: 'all',
-  analyticsRange: '7d',
-  charts: {
-    trend: null,
-    distribution: null
-  },
-  chatOpen: false,
-  chatHistory: [],
-  showSpreadVector: false,
-  spreadLayers: [],
-  evacLayers: [],
-  wind: { speed: 18, dir: 'NW', angle: 315 }
-};
 
-// Tile Layer URLs
-const TILE_CONFIG = {
-  satellite: {
+// Tile Layer Sources
+const mapSources = {
+  osm: new ol.source.OSM(),
+  satellite: new ol.source.XYZ({
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
-  },
-  street: {
-    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-  }
+    maxZoom: 19
+  })
 };
 
-/* =================================================================
-   1. INITIALIZATION & LIFECYCLE
-   ================================================================= */
+// India hotspot dataset supplied by the user (244 records), classified with the existing prototype FRP rules.
+const csvDataset = [{"latitude":30.13606,"longitude":78.5134,"bright_ti4":330.15,"scan":0.45,"track":0.43,"acq_date":"2026-09-27","acq_time":1403,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":303.38,"frp":76.18,"daynight":"N","temp_celsius":87.29,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.29843,"longitude":79.75187,"bright_ti4":331.59,"scan":0.51,"track":0.55,"acq_date":"2026-09-27","acq_time":581,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":296.62,"frp":51.05,"daynight":"D","temp_celsius":93.59,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.39785,"longitude":78.092,"bright_ti4":339.64,"scan":0.4,"track":0.51,"acq_date":"2026-09-27","acq_time":1733,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":293.4,"frp":45.25,"daynight":"N","temp_celsius":92.41,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.69427,"longitude":78.74605,"bright_ti4":359.71,"scan":0.49,"track":0.73,"acq_date":"2026-09-27","acq_time":1528,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":291.47,"frp":63.38,"daynight":"N","temp_celsius":88.95,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.86977,"longitude":79.25352,"bright_ti4":339.05,"scan":0.41,"track":0.56,"acq_date":"2026-09-27","acq_time":2252,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":294.16,"frp":87.47,"daynight":"D","temp_celsius":87.08,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.68907,"longitude":78.82698,"bright_ti4":330.87,"scan":0.43,"track":0.66,"acq_date":"2026-09-27","acq_time":641,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":292.89,"frp":44.31,"daynight":"N","temp_celsius":77.63,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":31.15437,"longitude":79.71163,"bright_ti4":341.15,"scan":0.73,"track":0.51,"acq_date":"2026-09-27","acq_time":1988,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":311.37,"frp":58.67,"daynight":"D","temp_celsius":80.51,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.6609,"longitude":78.51561,"bright_ti4":362.64,"scan":0.51,"track":0.54,"acq_date":"2026-09-27","acq_time":500,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":305.97,"frp":51.31,"daynight":"D","temp_celsius":77.01,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":31.02019,"longitude":78.30801,"bright_ti4":352.21,"scan":0.74,"track":0.39,"acq_date":"2026-09-27","acq_time":1127,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":292.91,"frp":48.3,"daynight":"D","temp_celsius":73.82,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.06266,"longitude":80.00793,"bright_ti4":340.98,"scan":0.56,"track":0.66,"acq_date":"2026-09-27","acq_time":1047,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":286.58,"frp":44.16,"daynight":"N","temp_celsius":90.27,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.88402,"longitude":78.00497,"bright_ti4":356.89,"scan":0.71,"track":0.58,"acq_date":"2026-09-27","acq_time":1723,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":295.11,"frp":94.83,"daynight":"N","temp_celsius":84.66,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.46703,"longitude":78.70935,"bright_ti4":337.45,"scan":0.48,"track":0.69,"acq_date":"2026-09-27","acq_time":2053,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":290.79,"frp":45.99,"daynight":"N","temp_celsius":58.8,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.1671,"longitude":79.94814,"bright_ti4":361.34,"scan":0.49,"track":0.64,"acq_date":"2026-09-27","acq_time":1603,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":285.85,"frp":91.51,"daynight":"D","temp_celsius":81.76,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.97473,"longitude":79.20074,"bright_ti4":345.66,"scan":0.61,"track":0.37,"acq_date":"2026-09-27","acq_time":874,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":307.2,"frp":75.03,"daynight":"N","temp_celsius":91.65,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.69824,"longitude":79.94346,"bright_ti4":358.97,"scan":0.66,"track":0.36,"acq_date":"2026-09-27","acq_time":683,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":294.26,"frp":50.93,"daynight":"N","temp_celsius":82.83,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.33317,"longitude":79.38333,"bright_ti4":341.43,"scan":0.37,"track":0.53,"acq_date":"2026-09-27","acq_time":1327,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":310.77,"frp":77.2,"daynight":"N","temp_celsius":85.49,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.35283,"longitude":79.78264,"bright_ti4":335.27,"scan":0.58,"track":0.47,"acq_date":"2026-09-27","acq_time":1948,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":303.01,"frp":60.74,"daynight":"D","temp_celsius":64.45,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":31.05,"longitude":79.13163,"bright_ti4":345.99,"scan":0.66,"track":0.74,"acq_date":"2026-09-27","acq_time":400,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":310.18,"frp":82.53,"daynight":"D","temp_celsius":84.25,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":31.07192,"longitude":78.9334,"bright_ti4":354.41,"scan":0.35,"track":0.66,"acq_date":"2026-09-27","acq_time":1434,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":308.09,"frp":87.28,"daynight":"N","temp_celsius":67.9,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":30.27736,"longitude":78.89237,"bright_ti4":351.24,"scan":0.75,"track":0.47,"acq_date":"2026-09-27","acq_time":1124,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":309.71,"frp":56.33,"daynight":"N","temp_celsius":66.04,"title":"Demo Indian Wildfire","demo_state":"Uttarakhand","demo_data":true,"type":"wildfire"},{"latitude":31.54112,"longitude":78.32112,"bright_ti4":351.58,"scan":0.7,"track":0.65,"acq_date":"2026-09-27","acq_time":1202,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":295.36,"frp":56.09,"daynight":"D","temp_celsius":81.07,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.50931,"longitude":77.72168,"bright_ti4":346.4,"scan":0.67,"track":0.74,"acq_date":"2026-09-27","acq_time":79,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":301.73,"frp":48.17,"daynight":"N","temp_celsius":65.88,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":30.63642,"longitude":77.33841,"bright_ti4":349.54,"scan":0.61,"track":0.54,"acq_date":"2026-09-27","acq_time":1579,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":289.52,"frp":81.56,"daynight":"N","temp_celsius":67.94,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":30.99727,"longitude":77.44342,"bright_ti4":349.18,"scan":0.47,"track":0.59,"acq_date":"2026-09-27","acq_time":987,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":314.94,"frp":80.81,"daynight":"D","temp_celsius":77.33,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.78953,"longitude":78.34557,"bright_ti4":341.86,"scan":0.51,"track":0.44,"acq_date":"2026-09-27","acq_time":945,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":300.31,"frp":72.86,"daynight":"D","temp_celsius":74.34,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":30.91677,"longitude":78.32776,"bright_ti4":334.49,"scan":0.67,"track":0.48,"acq_date":"2026-09-27","acq_time":2017,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":306.23,"frp":84.85,"daynight":"N","temp_celsius":72.06,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.62495,"longitude":77.94629,"bright_ti4":337.32,"scan":0.36,"track":0.57,"acq_date":"2026-09-27","acq_time":270,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":303.54,"frp":44.51,"daynight":"D","temp_celsius":85.71,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.66498,"longitude":77.61461,"bright_ti4":350.32,"scan":0.72,"track":0.38,"acq_date":"2026-09-27","acq_time":2016,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":292.68,"frp":56.44,"daynight":"D","temp_celsius":93.69,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.21981,"longitude":76.98747,"bright_ti4":342.92,"scan":0.63,"track":0.63,"acq_date":"2026-09-27","acq_time":372,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":287.43,"frp":54.08,"daynight":"D","temp_celsius":81.04,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.56126,"longitude":77.62889,"bright_ti4":358.64,"scan":0.37,"track":0.55,"acq_date":"2026-09-27","acq_time":901,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":293.27,"frp":61.27,"daynight":"N","temp_celsius":93.85,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":30.74586,"longitude":77.60944,"bright_ti4":340.75,"scan":0.54,"track":0.64,"acq_date":"2026-09-27","acq_time":1253,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":289.73,"frp":57.55,"daynight":"N","temp_celsius":64.01,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":32.04899,"longitude":77.79926,"bright_ti4":357.27,"scan":0.5,"track":0.52,"acq_date":"2026-09-27","acq_time":281,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":297.37,"frp":47.93,"daynight":"N","temp_celsius":73.67,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.59163,"longitude":76.94177,"bright_ti4":330.75,"scan":0.55,"track":0.49,"acq_date":"2026-09-27","acq_time":1104,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":291.05,"frp":47.95,"daynight":"D","temp_celsius":66.42,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.40219,"longitude":77.6189,"bright_ti4":348.59,"scan":0.42,"track":0.7,"acq_date":"2026-09-27","acq_time":1961,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":309.32,"frp":72.09,"daynight":"N","temp_celsius":66.12,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":32.09565,"longitude":77.11319,"bright_ti4":338.97,"scan":0.41,"track":0.45,"acq_date":"2026-09-27","acq_time":2004,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":292.86,"frp":48.64,"daynight":"N","temp_celsius":71.67,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":31.47179,"longitude":78.45316,"bright_ti4":351.16,"scan":0.44,"track":0.55,"acq_date":"2026-09-27","acq_time":145,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":292.67,"frp":87.67,"daynight":"D","temp_celsius":69.36,"title":"Demo Indian Wildfire","demo_state":"Himachal Pradesh","demo_data":true,"type":"wildfire"},{"latitude":21.48452,"longitude":77.37015,"bright_ti4":331.87,"scan":0.66,"track":0.73,"acq_date":"2026-09-27","acq_time":454,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":310.58,"frp":47.58,"daynight":"D","temp_celsius":86.73,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.02629,"longitude":76.93468,"bright_ti4":353.27,"scan":0.39,"track":0.73,"acq_date":"2026-09-27","acq_time":2216,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":311.76,"frp":74.0,"daynight":"N","temp_celsius":84.19,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":22.13002,"longitude":81.56411,"bright_ti4":363.54,"scan":0.39,"track":0.41,"acq_date":"2026-09-27","acq_time":718,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":308.53,"frp":54.02,"daynight":"N","temp_celsius":82.22,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.06823,"longitude":79.83694,"bright_ti4":353.86,"scan":0.55,"track":0.46,"acq_date":"2026-09-27","acq_time":1189,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":302.71,"frp":47.73,"daynight":"D","temp_celsius":91.92,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":21.87434,"longitude":79.10401,"bright_ti4":359.87,"scan":0.48,"track":0.66,"acq_date":"2026-09-27","acq_time":1324,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":297.45,"frp":53.04,"daynight":"D","temp_celsius":86.41,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.49611,"longitude":76.13093,"bright_ti4":337.99,"scan":0.7,"track":0.61,"acq_date":"2026-09-27","acq_time":2032,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":292.76,"frp":57.98,"daynight":"N","temp_celsius":86.09,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":21.04616,"longitude":81.19078,"bright_ti4":330.52,"scan":0.52,"track":0.62,"acq_date":"2026-09-27","acq_time":1106,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":304.93,"frp":51.29,"daynight":"D","temp_celsius":81.4,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":22.62442,"longitude":76.86957,"bright_ti4":337.7,"scan":0.51,"track":0.4,"acq_date":"2026-09-27","acq_time":1625,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":304.64,"frp":61.44,"daynight":"D","temp_celsius":77.06,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.17426,"longitude":81.69097,"bright_ti4":340.23,"scan":0.6,"track":0.52,"acq_date":"2026-09-27","acq_time":1198,"satellite":"VIIRS-Demo","confidence":"high","version":"Demo-India","bright_ti5":297.47,"frp":45.62,"daynight":"N","temp_celsius":66.51,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":22.05627,"longitude":78.11749,"bright_ti4":341.22,"scan":0.65,"track":0.71,"acq_date":"2026-09-27","acq_time":1346,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":293.85,"frp":46.95,"daynight":"N","temp_celsius":88.52,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":21.18113,"longitude":78.67362,"bright_ti4":357.34,"scan":0.52,"track":0.64,"acq_date":"2026-09-27","acq_time":1525,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":292.89,"frp":85.3,"daynight":"D","temp_celsius":84.57,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.33838,"longitude":77.30125,"bright_ti4":357.72,"scan":0.64,"track":0.46,"acq_date":"2026-09-27","acq_time":556,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":314.47,"frp":74.07,"daynight":"D","temp_celsius":76.38,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.17,"longitude":81.02945,"bright_ti4":338.13,"scan":0.38,"track":0.74,"acq_date":"2026-09-27","acq_time":2330,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":290.02,"frp":76.64,"daynight":"N","temp_celsius":83.72,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":23.67779,"longitude":79.04355,"bright_ti4":361.62,"scan":0.47,"track":0.65,"acq_date":"2026-09-27","acq_time":700,"satellite":"VIIRS-Demo","confidence":"nominal","version":"Demo-India","bright_ti5":303.42,"frp":93.41,"daynight":"D","temp_celsius":63.37,"title":"Demo Indian Wildfire","demo_state":"Madhya Pradesh","demo_data":true,"type":"wildfire"},{"latitude":21.10014,"longitude":72.63404,"bright_ti4":336.61,"scan":0.6,"track":0.53,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":298.34,"frp":36.33,"daynight":"D","temp_celsius":63.46,"title":"Industrial Fire","demo_state":NaN,"demo_data":false,"type":"industrial"},{"latitude":28.7746,"longitude":71.00861,"bright_ti4":353.66,"scan":0.53,"track":0.5,"acq_date":"2026-09-10","acq_time":750,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":310.18,"frp":15.55,"daynight":"D","temp_celsius":80.51,"title":"Industrial Fire","demo_state":NaN,"demo_data":false,"type":"industrial"},{"latitude":21.09986,"longitude":72.63593,"bright_ti4":367.0,"scan":0.6,"track":0.71,"acq_date":"2026-09-11","acq_time":731,"satellite":"N21","confidence":"high","version":"2.0NRT","bright_ti5":292.5,"frp":16.4,"daynight":"D","temp_celsius":93.85,"title":"Industrial Fire","demo_state":NaN,"demo_data":false,"type":"industrial"},{"latitude":21.10254,"longitude":72.64712,"bright_ti4":332.28,"scan":0.6,"track":0.71,"acq_date":"2026-09-11","acq_time":731,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.89,"frp":16.69,"daynight":"D","temp_celsius":59.13,"title":"Industrial Fire","demo_state":NaN,"demo_data":false,"type":"industrial"},{"latitude":27.76173,"longitude":96.05025,"bright_ti4":367.0,"scan":0.49,"track":0.65,"acq_date":"2026-09-11","acq_time":729,"satellite":"N21","confidence":"high","version":"2.0NRT","bright_ti5":291.32,"frp":30.46,"daynight":"D","temp_celsius":93.85,"title":"Industrial Fire","demo_state":NaN,"demo_data":false,"type":"industrial"},{"latitude":28.02405,"longitude":96.64853,"bright_ti4":329.18,"scan":0.53,"track":0.5,"acq_date":"2026-09-10","acq_time":608,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.84,"frp":6.33,"daynight":"D","temp_celsius":56.03,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.41569,"longitude":77.66499,"bright_ti4":335.52,"scan":0.47,"track":0.48,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":302.54,"frp":3.43,"daynight":"D","temp_celsius":62.37,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.43529,"longitude":77.6227,"bright_ti4":336.99,"scan":0.47,"track":0.48,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":304.43,"frp":1.21,"daynight":"D","temp_celsius":63.84,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.61568,"longitude":78.09698,"bright_ti4":336.26,"scan":0.44,"track":0.46,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":293.13,"frp":4.47,"daynight":"D","temp_celsius":63.11,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.90687,"longitude":77.60324,"bright_ti4":339.94,"scan":0.47,"track":0.48,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":306.89,"frp":3.33,"daynight":"D","temp_celsius":66.79,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.90438,"longitude":77.60378,"bright_ti4":333.52,"scan":0.47,"track":0.48,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"low","version":"2.0NRT","bright_ti5":304.14,"frp":4.95,"daynight":"D","temp_celsius":60.37,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":8.96667,"longitude":77.85931,"bright_ti4":348.35,"scan":0.45,"track":0.47,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":309.61,"frp":14.16,"daynight":"D","temp_celsius":75.2,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":9.2705,"longitude":78.60549,"bright_ti4":343.63,"scan":0.4,"track":0.44,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":304.06,"frp":2.3,"daynight":"D","temp_celsius":70.48,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":9.36015,"longitude":78.76106,"bright_ti4":339.16,"scan":0.39,"track":0.44,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":302.15,"frp":1.88,"daynight":"D","temp_celsius":66.01,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":9.24767,"longitude":77.89903,"bright_ti4":342.41,"scan":0.44,"track":0.46,"acq_date":"2026-09-10","acq_time":744,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":308.27,"frp":12.1,"daynight":"D","temp_celsius":69.26,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":14.50943,"longitude":77.50732,"bright_ti4":345.89,"scan":0.39,"track":0.44,"acq_date":"2026-09-10","acq_time":746,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":301.31,"frp":6.11,"daynight":"D","temp_celsius":72.74,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17447,"longitude":76.8308,"bright_ti4":341.83,"scan":0.41,"track":0.45,"acq_date":"2026-09-10","acq_time":746,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":297.72,"frp":3.73,"daynight":"D","temp_celsius":68.68,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":17.3086,"longitude":77.62019,"bright_ti4":333.06,"scan":0.52,"track":0.41,"acq_date":"2026-09-10","acq_time":746,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":285.06,"frp":8.89,"daynight":"D","temp_celsius":59.91,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":17.30932,"longitude":77.6216,"bright_ti4":330.95,"scan":0.52,"track":0.41,"acq_date":"2026-09-10","acq_time":746,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":284.98,"frp":8.81,"daynight":"D","temp_celsius":57.8,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":17.70016,"longitude":75.35762,"bright_ti4":335.22,"scan":0.46,"track":0.47,"acq_date":"2026-09-10","acq_time":746,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":297.83,"frp":3.82,"daynight":"D","temp_celsius":62.07,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":18.63248,"longitude":74.05639,"bright_ti4":331.15,"scan":0.54,"track":0.51,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.95,"frp":4.94,"daynight":"D","temp_celsius":58.0,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":19.92554,"longitude":79.11815,"bright_ti4":332.8,"scan":0.42,"track":0.37,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"low","version":"2.0NRT","bright_ti5":298.29,"frp":8.46,"daynight":"D","temp_celsius":59.65,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":22.21438,"longitude":84.866,"bright_ti4":333.48,"scan":0.51,"track":0.41,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":288.1,"frp":5.73,"daynight":"D","temp_celsius":60.33,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":22.21149,"longitude":84.86465,"bright_ti4":334.91,"scan":0.51,"track":0.41,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":289.17,"frp":5.09,"daynight":"D","temp_celsius":61.76,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":22.7853,"longitude":86.20583,"bright_ti4":337.65,"scan":0.41,"track":0.45,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":292.54,"frp":7.11,"daynight":"D","temp_celsius":64.5,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":21.10247,"longitude":72.64529,"bright_ti4":342.82,"scan":0.6,"track":0.53,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":295.75,"frp":9.05,"daynight":"D","temp_celsius":69.67,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":21.10725,"longitude":72.6442,"bright_ti4":331.63,"scan":0.6,"track":0.53,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":298.17,"frp":9.05,"daynight":"D","temp_celsius":58.48,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.68556,"longitude":86.39387,"bright_ti4":336.97,"scan":0.43,"track":0.46,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":293.54,"frp":5.88,"daynight":"D","temp_celsius":63.82,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.71437,"longitude":86.45137,"bright_ti4":333.64,"scan":0.43,"track":0.46,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":292.95,"frp":6.09,"daynight":"D","temp_celsius":60.49,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.73816,"longitude":86.43526,"bright_ti4":336.08,"scan":0.43,"track":0.46,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":293.61,"frp":6.49,"daynight":"D","temp_celsius":62.93,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.77997,"longitude":86.21016,"bright_ti4":342.33,"scan":0.42,"track":0.45,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":293.47,"frp":8.13,"daynight":"D","temp_celsius":69.18,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.77832,"longitude":86.21114,"bright_ti4":335.85,"scan":0.42,"track":0.45,"acq_date":"2026-09-10","acq_time":748,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":292.01,"frp":8.84,"daynight":"D","temp_celsius":62.7,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.22823,"longitude":69.83833,"bright_ti4":335.21,"scan":0.41,"track":0.61,"acq_date":"2026-09-10","acq_time":750,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":298.63,"frp":6.36,"daynight":"D","temp_celsius":62.06,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":23.22733,"longitude":69.83443,"bright_ti4":353.5,"scan":0.41,"track":0.61,"acq_date":"2026-09-10","acq_time":750,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":299.98,"frp":6.36,"daynight":"D","temp_celsius":80.35,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":25.78074,"longitude":73.69642,"bright_ti4":330.59,"scan":0.42,"track":0.45,"acq_date":"2026-09-10","acq_time":750,"satellite":"N21","confidence":"low","version":"2.0NRT","bright_ti5":304.03,"frp":1.44,"daynight":"D","temp_celsius":57.44,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":25.56557,"longitude":72.19657,"bright_ti4":334.68,"scan":0.52,"track":0.5,"acq_date":"2026-09-10","acq_time":750,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":304.27,"frp":3.32,"daynight":"D","temp_celsius":61.53,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":18.80434,"longitude":74.2586,"bright_ti4":310.09,"scan":0.41,"track":0.45,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":289.83,"frp":0.77,"daynight":"N","temp_celsius":36.94,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.3341,"longitude":76.28777,"bright_ti4":307.32,"scan":0.44,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.88,"frp":1.69,"daynight":"N","temp_celsius":34.17,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.1776,"longitude":77.10484,"bright_ti4":306.7,"scan":0.41,"track":0.37,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.49,"frp":1.38,"daynight":"N","temp_celsius":33.55,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.22459,"longitude":76.76285,"bright_ti4":317.18,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":293.41,"frp":2.43,"daynight":"N","temp_celsius":44.03,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17476,"longitude":77.10052,"bright_ti4":308.85,"scan":0.41,"track":0.37,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":291.91,"frp":1.38,"daynight":"N","temp_celsius":35.7,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.18192,"longitude":76.66852,"bright_ti4":316.12,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":284.73,"frp":1.24,"daynight":"N","temp_celsius":42.97,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.18135,"longitude":76.67244,"bright_ti4":302.51,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":285.75,"frp":1.24,"daynight":"N","temp_celsius":29.36,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.18079,"longitude":76.67635,"bright_ti4":308.84,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":286.89,"frp":1.76,"daynight":"N","temp_celsius":35.69,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17677,"longitude":76.67976,"bright_ti4":323.76,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":286.41,"frp":1.45,"daynight":"N","temp_celsius":50.61,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17734,"longitude":76.67583,"bright_ti4":308.41,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":286.12,"frp":1.45,"daynight":"N","temp_celsius":35.26,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.1767,"longitude":76.65572,"bright_ti4":325.35,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":283.32,"frp":4.18,"daynight":"N","temp_celsius":52.2,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17614,"longitude":76.65965,"bright_ti4":313.93,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":282.92,"frp":2.24,"daynight":"N","temp_celsius":40.78,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17332,"longitude":76.67924,"bright_ti4":311.98,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":285.1,"frp":1.45,"daynight":"N","temp_celsius":38.83,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"},{"latitude":15.17324,"longitude":76.6552,"bright_ti4":300.7,"scan":0.42,"track":0.38,"acq_date":"2026-09-10","acq_time":2017,"satellite":"N21","confidence":"nominal","version":"2.0NRT","bright_ti5":280.61,"frp":0.62,"daynight":"N","temp_celsius":27.55,"title":"Agricultural Fire","demo_state":NaN,"demo_data":false,"type":"agricultural"}];
+
 document.addEventListener('DOMContentLoaded', () => {
-  startLiveClock();
-  // Zero hardcoded demo locations on startup
-  renderHomeCards();
-  renderAlertsPage();
+  if (window.lucide) lucide.createIcons();
+
+  const loginForm = document.getElementById('loginForm');
+  if (loginForm) loginForm.addEventListener('submit', handleLogin);
+
+  const activeUser = localStorage.getItem('pyrovision_user');
+  if (activeUser) {
+    showDashboard(activeUser);
+  } else {
+    showLogin();
+  }
 });
 
-// Live Clock in Header
-function startLiveClock() {
-  const clockEl = document.getElementById('liveTimestamp');
-  const update = () => {
-    const now = new Date();
-    const options = { 
-      month: 'short', day: '2-digit', year: 'numeric',
-      weekday: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit',
-      hour12: true 
-    };
-    if (clockEl) {
-      clockEl.textContent = now.toLocaleDateString('en-US', options).replace(/,/g, '');
-    }
-  };
-  update();
-  setInterval(update, 1000);
+async function handleLogin(event) {
+  event.preventDefault();
+  const usernameInput = document.getElementById('username').value.trim();
+  const passwordInput = document.getElementById('password').value.trim();
+  const errorDiv = document.getElementById('loginError');
+
+  if ((usernameInput === 'admin' || usernameInput === 'demo') && (passwordInput === 'admin123' || passwordInput === 'demo123')) {
+    localStorage.setItem('pyrovision_user', usernameInput);
+    showDashboard(usernameInput);
+  } else {
+    errorDiv.style.display = 'block';
+  }
 }
 
-/* =================================================================
-   2. DIRECT DASHBOARD ACCESS
-   ================================================================= */
-// Authentication has been removed for the demo/MVP. The dashboard opens directly.
-function startDashboard() {
+function handleLogout() {
+  localStorage.removeItem('pyrovision_user');
+  showLogin();
+}
+
+function showLogin() {
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('dashboardScreen').style.display = 'none';
+}
+
+function showDashboard(username) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('dashboardScreen').style.display = 'flex';
+  document.getElementById('loggedInUser').textContent = username;
+
   setTimeout(() => {
-    initLeafletMaps();
-    locateUserPosition(true);
-    renderHomeCards();
-    renderAlertsPage();
+    initMaps();
+    renderCSVIncidents(csvDataset);
     initAnalyticsCharts();
-  }, 350);
+  }, 200);
 }
 
-document.addEventListener('DOMContentLoaded', startDashboard);
+function switchView(viewId, element) {
+  document.querySelectorAll('.view-page').forEach(page => page.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
 
-/* =================================================================
-   3. LEAFLET GIS ENGINE (Multi-Layer & Hotspots)
-   ================================================================= */
-function initLeafletMaps() {
-  // Dynamic center: user coordinates if already acquired, else national overview
-  const defaultCenter = state.userCoords ? [state.userCoords.lat, state.userCoords.lng] : [20.5937, 78.9629];
-  const defaultZoom = state.userCoords ? 12 : 5;
+  const targetPage = document.getElementById(viewId);
+  if (targetPage) targetPage.classList.add('active');
+  if (element) element.classList.add('active');
 
-  // Initialize Dashboard Map
-  if (!state.dashboardMap && document.getElementById('dashboardMap')) {
-    state.dashboardMap = L.map('dashboardMap', {
-      zoomControl: false,
-      attributionControl: false
-    }).setView(defaultCenter, defaultZoom);
-
-    L.control.zoom({ position: 'topright' }).addTo(state.dashboardMap);
-    state.dashboardLayers.satellite = L.tileLayer(TILE_CONFIG.satellite.url, { maxZoom: 19 });
-    state.dashboardLayers.street = L.tileLayer(TILE_CONFIG.street.url, { maxZoom: 19 });
-
-    state.dashboardLayers[state.currentLayer].addTo(state.dashboardMap);
-  }
-
-  // Initialize Full Map
-  if (!state.fullMap && document.getElementById('fullMap')) {
-    state.fullMap = L.map('fullMap', {
-      zoomControl: true,
-      attributionControl: false
-    }).setView([20.5937, 78.9629], 5); // India overview
-    state.fullMapLayers.satellite = L.tileLayer(TILE_CONFIG.satellite.url, { maxZoom: 19 });
-    state.fullMapLayers.street = L.tileLayer(TILE_CONFIG.street.url, { maxZoom: 19 });
-
-    state.fullMapLayers[state.currentLayer].addTo(state.fullMap);
-  }
-
-  renderHotspotMarkers();
+  setTimeout(() => {
+    if (mainMap) mainMap.updateSize();
+    if (fullMap) fullMap.updateSize();
+  }, 100);
 }
 
-function setMapLayer(layerName) {
-  state.currentLayer = layerName;
+function initMaps() {
+  const mapElement = document.getElementById('map');
+  if (!mapElement || mainMap) return;
 
-  // Update button active state
-  ['Satellite', 'Street'].forEach(name => {
-    const btn = document.getElementById(`btnLayer${name}`);
-    if (btn) {
-      if (name.toLowerCase() === layerName) {
-        btn.classList.add('active');
-      } else {
-        btn.classList.remove('active');
-      }
+  vectorSource = new ol.source.Vector();
+  const vectorLayer = new ol.layer.Vector({ source: vectorSource });
+
+  heatmapLayer = new ol.layer.Heatmap({
+    source: vectorSource,
+    blur: 18,
+    radius: 9,
+    weight: feature => feature.get('riskWeight') || 0.3,
+    visible: false
+  });
+
+  currentLayer = new ol.layer.Tile({ source: mapSources.satellite });
+
+  // Default accurate center set to Delhi, India
+  mainMap = new ol.Map({
+    target: 'map',
+    layers: [currentLayer, heatmapLayer, vectorLayer],
+    view: new ol.View({
+      center: ol.proj.fromLonLat([77.2090, 28.6139]),
+      zoom: 6
+    })
+  });
+
+  const fullMapElement = document.getElementById('map-full');
+  if (fullMapElement && !fullMap) {
+    fullMapLayer = new ol.layer.Tile({ source: mapSources.satellite });
+    fullMap = new ol.Map({
+      target: 'map-full',
+      layers: [fullMapLayer, heatmapLayer, new ol.layer.Vector({ source: vectorSource })],
+      view: mainMap.getView()
+    });
+  }
+}
+
+function setMapLayer(type) {
+  if (!mapSources[type]) return;
+  if (currentLayer) currentLayer.setSource(mapSources[type]);
+  if (fullMapLayer) fullMapLayer.setSource(mapSources[type]);
+
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    if (!btn.innerHTML.includes('My Location')) {
+      btn.classList.remove('active');
     }
   });
 
-  // Switch layers on Dashboard Map
-  if (state.dashboardMap) {
-    Object.values(state.dashboardLayers).forEach(layer => state.dashboardMap.removeLayer(layer));
-    if (state.dashboardLayers[layerName]) {
-      state.dashboardLayers[layerName].addTo(state.dashboardMap);
-    }
-  }
+  const btnIdMap = { osm: 'map', satellite: 'sat' };
+  const targetKey = btnIdMap[type];
+  
+  const activeBtn = document.getElementById(`btn-${targetKey}`);
+  const activeFullBtn = document.getElementById(`btn-full-${targetKey}`);
+  
+  if (activeBtn) activeBtn.classList.add('active');
+  if (activeFullBtn) activeFullBtn.classList.add('active');
+}
 
-  // Switch layers on Full Map
-  if (state.fullMap) {
-    Object.values(state.fullMapLayers).forEach(layer => state.fullMap.removeLayer(layer));
-    if (state.fullMapLayers[layerName]) {
-      state.fullMapLayers[layerName].addTo(state.fullMap);
-    }
+function handleSearchKeyPress(event) {
+  if (event.key === 'Enter') {
+    const query = document.getElementById('mapSearchInput').value.trim();
+    if (!query) return;
+
+    fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}`)
+      .then(response => response.json())
+      .then(data => {
+        if (data && data.length > 0) {
+          const lat = parseFloat(data[0].lat);
+          const lon = parseFloat(data[0].lon);
+          const coord = ol.proj.fromLonLat([lon, lat]);
+
+          if (mainMap) {
+            mainMap.getView().animate({ center: coord, zoom: 11, duration: 1200 });
+          }
+          refreshWeather(lat, lon, data[0].display_name || 'Selected Location');
+        } else {
+          alert("Location not found. Please try another city or region name.");
+        }
+      })
+      .catch(err => console.error("Search error:", err));
   }
 }
 
-/* =================================================================
-   4. DYNAMIC GEOLOCATION & REAL NOMINATIM GEOCODING (NO FIXED DEMO)
-   ================================================================= */
-// Locate user via HTML5 Geolocation API
-function locateUserPosition(silent = false) {
+function panToLiveLocation() {
   if (!navigator.geolocation) {
-    if (!silent) alert('Geolocation is not supported by your browser.');
+    alert("Geolocation is not supported by your browser.");
     return;
-  }
-
-  if (!silent) {
-    showToast('Fetching your real GPS location...', 'info');
   }
 
   navigator.geolocation.getCurrentPosition(
     (position) => {
+      const lon = position.coords.longitude;
       const lat = position.coords.latitude;
-      const lng = position.coords.longitude;
-      state.userCoords = { lat, lng };
+      const coord = ol.proj.fromLonLat([lon, lat]);
 
-      // Fly both maps to user location
-      if (state.dashboardMap) {
-        state.dashboardMap.flyTo([lat, lng], 13, { duration: 1.8 });
+      if (mainMap) {
+        mainMap.getView().animate({ center: coord, zoom: 13, duration: 1000 });
       }
-      if (state.fullMap && state.activeTab === 'map') {
-        state.fullMap.flyTo([lat, lng], 12, { duration: 1.8 });
+      refreshWeather(lat, lon, 'My Location');
+
+      if (userLocationFeature) {
+        vectorSource.removeFeature(userLocationFeature);
       }
 
-      // Add/update User GPS pulsing pin
-      updateUserGPSMarker(lat, lng);
+      userLocationFeature = new ol.Feature({
+        geometry: new ol.geom.Point(coord),
+        name: "My Live Location"
+      });
 
-      // Reverse geocode user location name
-      reverseGeocodeCoords(lat, lng);
+      userLocationFeature.setStyle(new ol.style.Style({
+        image: new ol.style.Circle({
+          radius: 10,
+          fill: new ol.style.Fill({ color: '#3b82f6' }),
+          stroke: new ol.style.Stroke({ color: '#ffffff', width: 3 })
+        })
+      }));
 
-      // Generate realistic thermal hotspots around user location
-      generateHotspotsAroundCenter(lat, lng, 'Local Area');
-
-      if (!silent) {
-        showToast('Map centered to your GPS coordinates!', 'success');
-      }
+      vectorSource.addFeature(userLocationFeature);
     },
-    (err) => {
-      console.warn('Geolocation failed or denied:', err.message);
-      if (!silent) {
-        showToast('GPS permission denied or unavailable. Using default monitoring sector.', 'warning');
-      }
+    (error) => {
+      alert("Unable to retrieve your exact GPS location. Please check browser permissions.");
     },
-    { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    { enableHighAccuracy: true, timeout: 8000 }
   );
 }
 
-// Update User Marker
-function updateUserGPSMarker(lat, lng) {
-  const userIcon = L.divIcon({
-    className: 'hotspot-marker',
-    html: `
-      <div class="user-gps-pulse"></div>
-      <div class="user-gps-marker"></div>
-    `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12]
+
+function getRiskScore(row) {
+  const frp = Number(row.frp) || 0;
+  const temp = Number(row.temp_celsius) || 0;
+  const confidence = String(row.confidence || '').toLowerCase();
+  const confScore = confidence.includes('high') ? 18 : confidence.includes('nominal') ? 11 : 6;
+  const frpScore = Math.min(55, frp * 1.05);
+  const tempScore = Math.min(27, Math.max(0, (temp - 285) * 0.9));
+  return Math.round(Math.min(100, frpScore + tempScore + confScore));
+}
+
+function getRiskLevel(score) {
+  if (score >= 75) return 'Critical';
+  if (score >= 50) return 'High';
+  if (score >= 25) return 'Moderate';
+  return 'Low';
+}
+
+function getRiskClass(level) {
+  return 'risk-' + level.toLowerCase();
+}
+
+function updateRiskSummary(data) {
+  const scored = data.map((row, i) => ({ row, score: getRiskScore(row), index: i }));
+  const highest = [...scored].sort((a,b) => b.score - a.score)[0];
+  const highCount = scored.filter(x => x.score >= 50).length;
+  const avg = scored.length ? Math.round(scored.reduce((s,x) => s+x.score,0) / scored.length) : 0;
+
+  const hv = document.getElementById('highestRiskValue');
+  const hm = document.getElementById('highestRiskMeta');
+  const hc = document.getElementById('highRiskCount');
+  const av = document.getElementById('averageRiskValue');
+  if (hv) hv.textContent = highest ? highest.score + '/100' : '--';
+  if (hm) hm.textContent = highest ? `${highest.row.title} • ${getRiskLevel(highest.score)}` : 'No incidents';
+  if (hc) hc.textContent = highCount;
+  if (av) av.textContent = avg;
+}
+
+function renderRiskRanking(data) {
+  const box = document.getElementById('riskRanking');
+  if (!box) return;
+  const ranked = data.map(row => ({ row, score: getRiskScore(row) }))
+    .sort((a,b) => b.score - a.score);
+
+  box.innerHTML = ranked.map(({row, score}) => {
+    const level = getRiskLevel(score);
+    return `<div class="risk-row">
+      <div>
+        <div class="risk-row-title">${row.title}</div>
+        <div class="risk-row-meta">Lat ${row.latitude}, Lon ${row.longitude} • FRP ${row.frp} MW</div>
+      </div>
+      <span class="risk-badge ${getRiskClass(level)}">${level}</span>
+      <div class="risk-score">${score}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleHeatmap(force) {
+  if (!heatmapLayer) return;
+  const next = typeof force === 'boolean' ? force : !heatmapLayer.getVisible();
+  heatmapLayer.setVisible(next);
+  ['btn-heat','btn-full-heat'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.classList.toggle('active', next);
+  });
+  const setting = document.getElementById('heatmapToggle');
+  if (setting) setting.checked = next;
+}
+
+function toggleHeatmapFromSetting(checked) {
+  toggleHeatmap(checked);
+}
+
+function toggleRiskAlerts(checked) {
+  riskAlertsEnabled = checked;
+}
+
+
+function toggleSidebar(force) {
+  const body = document.body;
+  const button = document.getElementById('sidebarToggle');
+  const isCollapsed = body.classList.contains('sidebar-collapsed');
+  const nextCollapsed = typeof force === 'boolean' ? force : !isCollapsed;
+
+  body.classList.toggle('sidebar-collapsed', nextCollapsed);
+  localStorage.setItem('pyrovision_sidebar_collapsed', String(nextCollapsed));
+
+  if (button) {
+    button.setAttribute('aria-label', nextCollapsed ? 'Show navigation' : 'Hide navigation');
+    button.setAttribute('title', nextCollapsed ? 'Show navigation' : 'Hide navigation');
+    button.innerHTML = nextCollapsed
+      ? '<i data-lucide="panel-left-open"></i>'
+      : '<i data-lucide="panel-left-close"></i>';
+  }
+  if (window.lucide) lucide.createIcons();
+}
+
+function initSidebarState() {
+  const saved = localStorage.getItem('pyrovision_sidebar_collapsed');
+  if (saved === 'true') toggleSidebar(true);
+}
+
+function togglePrototypeTools() {
+  const menu = document.getElementById('prototypeToolsMenu');
+  const button = document.querySelector('.prototype-tools-toggle');
+  if (!menu) return;
+  const willOpen = menu.hidden;
+  menu.hidden = !willOpen;
+  if (button) button.setAttribute('aria-expanded', String(willOpen));
+  if (window.lucide) lucide.createIcons();
+}
+
+
+function toggleWeather(checked) {
+  weatherEnabled = checked;
+  const mini = document.getElementById('weatherMini');
+  const panel = document.getElementById('weatherPanel');
+  if (!checked) {
+    if (mini) mini.innerHTML = '<strong>Weather Risk:</strong> disabled in Settings';
+    if (panel) panel.innerHTML = '<div class="weather-loading">Weather context disabled.</div>';
+  } else {
+    refreshWeather();
+  }
+}
+
+async function refreshWeather(lat = 28.6139, lon = 77.2090, locationLabel = 'Delhi') {
+  if (!weatherEnabled) return;
+  const mini = document.getElementById('weatherMini');
+  const panel = document.getElementById('weatherPanel');
+  if (mini) mini.innerHTML = `<strong>${locationLabel} Weather:</strong> loading...`;
+  if (panel) panel.innerHTML = '<div class="weather-loading">Fetching current weather for the selected map location...</div>';
+
+  // Weather is requested for the actual map/incident coordinates.
+  // Initial dashboard reference remains New Delhi.
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${encodeURIComponent(lat)}&longitude=${encodeURIComponent(lon)}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation&timezone=Asia%2FKolkata`;
+  try {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error('Weather request failed');
+    const data = await response.json();
+    weatherCache = data.current;
+    const t = Number(data.current.temperature_2m).toFixed(1);
+    const h = Number(data.current.relative_humidity_2m).toFixed(0);
+    const w = Number(data.current.wind_speed_10m).toFixed(1);
+    const p = Number(data.current.precipitation).toFixed(1);
+    const weatherRisk = (Number(t) >= 38 && Number(w) >= 15) ? 'Elevated' :
+                        (Number(t) >= 34 || Number(w) >= 12) ? 'Moderate' : 'Low';
+
+    if (mini) mini.innerHTML = `<strong>${locationLabel} Weather:</strong> ${t}°C • Wind ${w} km/h • Risk ${weatherRisk}`;
+    if (panel) panel.innerHTML = `<div class="weather-grid">
+      <div class="weather-cell"><span>Temperature</span><strong>${t}°C</strong></div>
+      <div class="weather-cell"><span>Humidity</span><strong>${h}%</strong></div>
+      <div class="weather-cell"><span>Wind</span><strong>${w} km/h</strong></div>
+      <div class="weather-cell"><span>Precipitation</span><strong>${p} mm</strong></div>
+      <div class="weather-cell"><span>Risk Context</span><strong>${weatherRisk}</strong></div>
+      <div class="weather-cell"><span>Coordinates</span><strong>${Number(lat).toFixed(3)}, ${Number(lon).toFixed(3)}</strong></div>
+      <div class="weather-cell"><span>Source</span><strong>Open-Meteo</strong></div>
+    </div>`;
+  } catch (err) {
+    if (mini) mini.innerHTML = `<strong>${locationLabel} Weather:</strong> unavailable`;
+    if (panel) panel.innerHTML = '<div class="weather-loading">Live weather is unavailable for this location right now.</div>';
+  }
+}
+
+function simulateRealTimeAlert() {
+  const top = csvDataset.map(row => ({row, score:getRiskScore(row)}))
+    .sort((a,b) => b.score-a.score)[0];
+  if (!top) return;
+  const toast = document.getElementById('alertToast');
+  if (!toast) return;
+  toast.innerHTML = `🚨 <strong>New Risk Alert</strong><br>${top.row.title} detected at ${top.row.latitude.toFixed(4)}, ${top.row.longitude.toFixed(4)}<br>Risk Score: <strong>${top.score}/100</strong> (${getRiskLevel(top.score)})`;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 6000);
+}
+
+function showResponseGuide(type) {
+  const guide = document.getElementById('responseGuide');
+  if (!guide) return;
+  const guides = {
+    wildfire: '<strong>Wildfire:</strong> verify hotspot, assess wind direction, identify nearby population/assets, notify response teams, and consider evacuation-zone review.',
+    industrial: '<strong>Industrial:</strong> verify site, check hazardous-material risk, isolate the affected zone, notify facility response, and coordinate emergency services.',
+    agricultural: '<strong>Agricultural:</strong> verify field location, monitor spread toward roads/habitations, contact local response resources, and track wind conditions.',
+    evacuation: '<strong>Evacuation:</strong> identify affected settlements, map safe routes, avoid fire/wind corridors, communicate verified instructions, and keep an incident log.'
+  };
+  guide.innerHTML = guides[type] || 'Select a protocol.';
+}
+
+function downloadCSVReport() {
+  const headers = ['Fire Type','Latitude','Longitude','FRP MW','Temperature C','Confidence','Risk Score','Risk Level','Acquisition Date'];
+  const rows = csvDataset.map(row => [
+    row.title, row.latitude, row.longitude, row.frp, row.temp_celsius,
+    row.confidence, getRiskScore(row), getRiskLevel(getRiskScore(row)), row.acq_date
+  ]);
+  const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pyrovision_incident_risk_report.csv';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function printIncidentReport() {
+  const ranked = csvDataset.map(row => ({row, score:getRiskScore(row)})).sort((a,b)=>b.score-a.score);
+  const report = ranked.map(x => `<tr><td>${x.row.title}</td><td>${x.row.latitude}, ${x.row.longitude}</td><td>${x.row.frp}</td><td>${x.row.temp_celsius}°C</td><td>${x.score}/100</td><td>${getRiskLevel(x.score)}</td></tr>`).join('');
+  const w = window.open('', '_blank');
+  if (!w) { alert('Please allow pop-ups to generate the print/PDF report.'); return; }
+  w.document.write(`<html><head><title>PyroVision Incident Report</title><style>
+    body{font-family:Arial,sans-serif;padding:28px;color:#111} h1{margin-bottom:4px}
+    table{border-collapse:collapse;width:100%;margin-top:18px}th,td{border:1px solid #bbb;padding:8px;text-align:left}
+    th{background:#eee}
+  </style></head><body><h1>PyroVision Incident Analysis Report</h1>
+  <p>Generated: ${new Date().toLocaleString()}</p>
+  <p>Prototype report with incident classification and risk scoring.</p>
+  <table><thead><tr><th>Type</th><th>Coordinates</th><th>FRP</th><th>Temp</th><th>Risk</th><th>Level</th></tr></thead>
+  <tbody>${report}</tbody></table></body></html>`);
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 350);
+}
+
+
+function getFireColor(type) {
+  if (type === 'wildfire') return '#a855f7';
+  if (type === 'industrial') return '#ff5722';
+  return '#eab308';
+}
+
+function renderCSVIncidents(data) {
+  const alertsContainer = document.getElementById('liveAlertsContainer');
+  const classContainer = document.getElementById('recentClassificationsContainer');
+  const tableBody = document.getElementById('alertsTableBody');
+
+  if (alertsContainer) alertsContainer.innerHTML = '';
+  if (classContainer) classContainer.innerHTML = '';
+  if (tableBody) tableBody.innerHTML = '';
+
+  updateRiskSummary(data);
+  renderRiskRanking(data);
+  data.forEach((row, idx) => {
+    const color = getFireColor(row.type);
+
+    if (alertsContainer) {
+      alertsContainer.innerHTML += `
+        <div class="alert-card" style="border-left-color: ${color};">
+          <div class="alert-title">${row.title} <span>${row.acq_date}</span></div>
+          <div class="alert-loc">Lat: ${row.latitude}, Lon: ${row.longitude} | Temp: ${row.temp_celsius}°C</div>
+        </div>`;
+    }
+
+    if (classContainer) {
+      classContainer.innerHTML += `
+        <div style="font-size: 0.75rem; background: var(--card-bg); padding: 8px; border-radius: 4px; margin-bottom: 6px; border: 1px solid var(--border-color);">
+          <span style="color: ${color}; font-weight: bold;">■ FRP: ${row.frp} MW</span> (Conf: ${row.confidence})<br>
+          <span style="color: var(--text-muted);">Lat: ${row.latitude}, Lon: ${row.longitude}</span>
+        </div>`;
+    }
+
+    if (tableBody) {
+      tableBody.innerHTML += `
+        <tr>
+          <td><span style="color: ${color}; font-weight: bold;">${row.title}</span></td>
+          <td>Lat: ${row.latitude}, Lon: ${row.longitude}</td>
+          <td>${row.frp} MW</td>
+          <td>${row.temp_celsius} °C</td>
+          <td>${row.confidence}</td>
+          <td><span class="risk-badge ${getRiskClass(getRiskLevel(getRiskScore(row)))}">${getRiskLevel(getRiskScore(row))} ${getRiskScore(row)}</span></td>
+          <td>
+            <button class="btn-action" onclick="focusOnMap(${row.longitude}, ${row.latitude})">View on Map</button>
+          </td>
+        </tr>`;
+    }
+
+    const feature = new ol.Feature({
+      geometry: new ol.geom.Point(ol.proj.fromLonLat([row.longitude, row.latitude])),
+      name: row.title,
+      riskWeight: Math.max(0.15, getRiskScore(row) / 100)
+    });
+
+    feature.setStyle(new ol.style.Style({
+      image: new ol.style.Circle({
+        radius: 10,
+        fill: new ol.style.Fill({ color: color }),
+        stroke: new ol.style.Stroke({ color: '#ffffff', width: 2.5 })
+      })
+    }));
+
+    vectorSource.addFeature(feature);
   });
 
-  if (state.dashboardMap) {
-    if (state.userMarkerDashboard) state.dashboardMap.removeLayer(state.userMarkerDashboard);
-    state.userMarkerDashboard = L.marker([lat, lng], { icon: userIcon })
-      .addTo(state.dashboardMap)
-      .bindPopup(`<strong style="color:#38bdf8;">Your Location</strong><br><span style="font-size:11px;">Active Monitoring Node</span>`);
-  }
-
-  if (state.fullMap) {
-    if (state.userMarkerFull) state.fullMap.removeLayer(state.userMarkerFull);
-    state.userMarkerFull = L.marker([lat, lng], { icon: userIcon })
-      .addTo(state.fullMap)
-      .bindPopup(`<strong style="color:#38bdf8;">Your Location</strong><br><span style="font-size:11px;">Active Monitoring Node</span>`);
-  }
+  // Automatically fit the map to every incident so the full 100-location
+  // dataset is visible instead of staying focused only around Delhi.
+  fitMapToAllIncidents();
 }
 
-// Search location using OpenStreetMap Nominatim Geocoding API
-async function handleSearchLocation(queryText) {
-  const input = document.getElementById('geoSearchInput');
-  const query = queryText || (input ? input.value.trim() : '');
+function fitMapToAllIncidents() {
+  if (!mainMap || !vectorSource || vectorSource.getFeatures().length === 0) return;
 
-  if (!query) {
-    showToast('Please enter a city, forest, or region to search.', 'warning');
-    return;
-  }
+  const extent = vectorSource.getExtent();
+  if (!extent || !isFinite(extent[0])) return;
 
-  showToast(`Locating "${query}" via Nominatim GIS...`, 'info');
-
-  try {
-    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=1`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    const data = await res.json();
-
-    if (data && data.length > 0) {
-      const item = data[0];
-      const lat = parseFloat(item.lat);
-      const lng = parseFloat(item.lon);
-      const displayName = item.display_name.split(',')[0];
-
-      state.userLocationName = displayName;
-
-      // Smoothly fly maps
-      if (state.dashboardMap) {
-        state.dashboardMap.flyTo([lat, lng], 12, { duration: 2.0 });
-      }
-      if (state.fullMap) {
-        state.fullMap.flyTo([lat, lng], 11, { duration: 2.0 });
-      }
-
-      // Generate dynamic hotspots clustered around this real location
-      generateHotspotsAroundCenter(lat, lng, displayName);
-
-      showToast(`Located ${displayName} (${lat.toFixed(3)}, ${lng.toFixed(3)})`, 'success');
-    } else {
-      showToast(`Location "${query}" not found. Try another city name.`, 'warning');
-    }
-  } catch (err) {
-    console.error('Nominatim search error:', err);
-    showToast('Geocoding service error. Check connection.', 'error');
-  }
+  mainMap.updateSize();
+  mainMap.getView().fit(extent, {
+    padding: [70, 70, 70, 70],
+    maxZoom: 6,
+    duration: 700
+  });
 }
 
-// Reverse geocode to get human-readable location name
-async function reverseGeocodeCoords(lat, lng) {
+async function focusOnMap(lon, lat) {
+  switchView('dashboard', document.querySelectorAll('.nav-item')[0]);
+  if (mainMap) {
+    mainMap.getView().animate({ 
+      center: ol.proj.fromLonLat([lon, lat]), 
+      zoom: 12, 
+      duration: 1200 
+    });
+  }
+
+  // When an alert's "View on Map" is used, move the weather card to that incident too.
+  let locationLabel = `Incident (${Number(lat).toFixed(3)}, ${Number(lon).toFixed(3)})`;
   try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`;
-    const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    const data = await res.json();
-    if (data && data.address) {
-      const city = data.address.city || data.address.town || data.address.state_district || data.address.state || 'Local Zone';
-      state.userLocationName = city;
+    const geo = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=10&addressdetails=1`);
+    if (geo.ok) {
+      const result = await geo.json();
+      const a = result.address || {};
+      locationLabel = a.city || a.town || a.village || a.state_district || a.state || locationLabel;
     }
   } catch (e) {
-    state.userLocationName = `${lat.toFixed(2)}°N, ${lng.toFixed(2)}°E`;
+    // Coordinates remain the fallback label.
   }
+  refreshWeather(lat, lon, locationLabel);
 }
 
-/* =================================================================
-   5. DYNAMIC HOTSPOTS & CLUSTER TELEMETRY (ZERO DEMO LOCATIONS)
-   ================================================================= */
-// Starts with completely empty hotspots array - zero hardcoded demo locations!
-state.hotspots = [];
-state.activeHotspot = null;
+function updateAnalyticsSummary() {
+  const total = csvDataset.length;
+  const wildfires = csvDataset.filter(d => d.type === 'wildfire').length;
+  const industrial = csvDataset.filter(d => d.type === 'industrial').length;
+  const agricultural = csvDataset.filter(d => d.type === 'agricultural').length;
+  const maxFrp = total ? Math.max(...csvDataset.map(d => Number(d.frp) || 0)) : 0;
 
-// Generate new hotspots when user searches or GPS relocates
-function generateHotspotsAroundCenter(centerLat, centerLng, placeName) {
-  const newHotspots = [];
-  const count = 5 + Math.floor(Math.random() * 4);
-
-  for (let i = 0; i < count; i++) {
-    const rand = Math.random();
-    let type = 'wildfire';
-    let title = 'Active Forest Fire Cluster';
-    let img = 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop';
-
-    if (rand > 0.72) {
-      type = 'industrial';
-      title = 'Industrial Flare Stack';
-      img = 'https://images.unsplash.com/photo-1542385151-efd9000785a0?q=80&w=400&auto=format&fit=crop';
-    } else if (rand > 0.48) {
-      type = 'stubble';
-      title = 'Agricultural Stubble / Biomass Fire';
-      img = 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop';
-    }
-
-    const offsetLat = (Math.random() - 0.5) * 0.18;
-    const offsetLng = (Math.random() - 0.5) * 0.18;
-    const conf = Math.floor(75 + Math.random() * 23);
-    const frp = parseFloat((18 + Math.random() * 55).toFixed(1));
-    const tempK = parseFloat((315 + Math.random() * 45).toFixed(1));
-
-    newHotspots.push({
-      id: `hs-dyn-${Date.now()}-${i}`,
-      type: type,
-      title: title,
-      location: `${placeName} Sector ${i + 1}`,
-      lat: centerLat + offsetLat,
-      lng: centerLng + offsetLng,
-      confidence: conf,
-      frp: frp,
-      tempK: tempK,
-      satellite: Math.random() > 0.5 ? 'VIIRS Suomi-NPP (375m)' : 'Aqua MODIS (1km)',
-      time: `${(i + 1) * 7} min ago`,
-      timeExact: `Today, ${10 - i}:${20 + i} PM`,
-      severity: conf > 90 ? 'Critical' : (conf > 80 ? 'High' : 'Moderate'),
-      img: img
-    });
-  }
-
-  // Prepend new spots and refresh
-  state.hotspots = [...newHotspots, ...state.hotspots.slice(0, 10)];
-  state.activeHotspot = newHotspots[0];
-
-  renderHotspotMarkers();
-  renderHomeCards();
-  renderAlertsPage();
-  updateMapBottomCard(state.activeHotspot);
-
-  // Update stats on Screen 2
-  const fullStats = document.getElementById('fullMapStats');
-  if (fullStats) {
-    fullStats.textContent = `${state.hotspots.length} Active Hotspots In View`;
-  }
-}
-
-// Render markers on Leaflet
-function renderHotspotMarkers() {
-  // Clear old markers
-  if (state.dashboardMap) {
-    state.activeMarkersDashboard.forEach(m => state.dashboardMap.removeLayer(m));
-    state.activeMarkersDashboard = [];
-  }
-  if (state.fullMap) {
-    state.activeMarkersFull.forEach(m => state.fullMap.removeLayer(m));
-    state.activeMarkersFull = [];
-  }
-
-  state.hotspots.forEach(spot => {
-    // Filter check
-    if (state.alertFilter !== 'all' && spot.type !== state.alertFilter) {
-      return;
-    }
-
-    const typeClass = spot.type === 'wildfire' ? 'wildfire' : (spot.type === 'industrial' ? 'industrial' : 'stubble');
-    const typeColor = spot.type === 'wildfire' ? '#ef4444' : (spot.type === 'industrial' ? '#f97316' : '#eab308');
-    const markerHtml = `
-      <div class="hotspot-pulse ${typeClass}"></div>
-      <div class="hotspot-dot ${typeClass}"></div>
-    `;
-
-    const customIcon = L.divIcon({
-      className: 'hotspot-marker',
-      html: markerHtml,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
-    });
-
-    const popupContent = `
-      <div style="min-width: 185px; font-size: 11px; padding: 3px;">
-        <div style="font-weight: 700; color: ${typeColor}; margin-bottom: 2px;">
-          ${spot.title}
-        </div>
-        <div style="color: #94a3b8; font-size: 10px;">${spot.location}</div>
-        <hr style="border-color: #1e3461; margin: 4px 0;">
-        <div style="display: flex; justify-content: space-between;">
-          <span>Confidence:</span> <strong style="color:#10b981;">${spot.confidence}%</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between;">
-          <span>FRP:</span> <strong style="color:#fbbf24;">${spot.frp} MW</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between;">
-          <span>Brightness T4:</span> <strong style="color:#38bdf8;">${spot.tempK} K</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; font-size: 9px; color: #64748b; margin-top: 2px;">
-          <span>Sensor:</span> <span>${spot.satellite.split(' ')[0]}</span>
-        </div>
-        <button onclick="openHotspotModalById('${spot.id}')" style="margin-top: 6px; width: 100%; background: #0284c7; color: white; border: none; border-radius: 4px; padding: 4px; font-weight: 600; cursor: pointer;">
-          Inspect Alert SOP
-        </button>
-      </div>
-    `;
-
-    // Add to Dashboard Map
-    if (state.dashboardMap) {
-      const markerD = L.marker([spot.lat, spot.lng], { icon: customIcon })
-        .addTo(state.dashboardMap)
-        .bindPopup(popupContent);
-      markerD.on('click', () => updateMapBottomCard(spot));
-      state.activeMarkersDashboard.push(markerD);
-    }
-
-    // Add to Full Map
-    if (state.fullMap) {
-      const markerF = L.marker([spot.lat, spot.lng], { icon: customIcon })
-        .addTo(state.fullMap)
-        .bindPopup(popupContent);
-      markerF.on('click', () => updateMapBottomCard(spot));
-      state.activeMarkersFull.push(markerF);
-    }
-  });
-
-  // Re-render spread vectors if enabled
-  if (state.showSpreadVector) {
-    renderSpreadVectors();
-  }
-}
-
-function updateMapBottomCard(spot) {
-  state.activeHotspot = spot;
-  const title = document.getElementById('bottomCardTitle');
-  const conf = document.getElementById('bottomCardConf');
-  const sub = document.getElementById('bottomCardSub');
-  const img = document.getElementById('bottomCardImg');
-
-  if (title) title.textContent = spot.title;
-  if (conf) {
-    conf.textContent = `Confidence: ${spot.confidence}%`;
-    let badgeColor = 'bg-red-500/20 text-red-400 border-red-500/30';
-    if (spot.type === 'industrial') badgeColor = 'bg-orange-500/20 text-orange-400 border-orange-500/30';
-    else if (spot.type === 'stubble') badgeColor = 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
-    conf.className = `text-[10px] px-1.5 py-0.5 rounded border font-semibold ${badgeColor}`;
-  }
-  if (sub) {
-    sub.innerHTML = `
-      <i class="fa-solid fa-location-dot text-red-400 text-[10px]"></i>
-      <span>${spot.location}</span>
-      <span class="text-slate-500">•</span>
-      <span class="text-slate-400 font-mono">FRP: ${spot.frp} MW</span>
-      <span class="text-slate-500">•</span>
-      <span class="text-sky-400 font-mono">${spot.tempK} K</span>
-    `;
-  }
-  if (img) img.src = spot.img;
-}
-
-/* =================================================================
-   6. UI ROUTING & SCREEN SWITCHING
-   ================================================================= */
-function switchTab(tabId) {
-  state.activeTab = tabId;
-
-  // Hide all sections
-  ['home', 'map', 'alerts', 'analytics', 'reports', 'settings'].forEach(id => {
-    const sec = document.getElementById(`view-${id}`);
-    const nav = document.getElementById(`nav-${id}`);
-    if (sec) sec.classList.add('hidden');
-    if (nav) nav.classList.remove('active');
-  });
-
-  // Show active section
-  const targetSec = document.getElementById(`view-${tabId}`);
-  const targetNav = document.getElementById(`nav-${tabId}`);
-  if (targetSec) targetSec.classList.remove('hidden');
-  if (targetNav) targetNav.classList.add('active');
-
-  // Trigger Leaflet resize recalculations so map tiles render without gray gaps
-  if (tabId === 'home' && state.dashboardMap) {
-    setTimeout(() => state.dashboardMap.invalidateSize(), 200);
-  } else if (tabId === 'map' && state.fullMap) {
-    setTimeout(() => {
-      state.fullMap.invalidateSize();
-      renderHotspotMarkers();
-    }, 200);
-  } else if (tabId === 'analytics') {
-    setTimeout(() => initAnalyticsCharts(), 200);
-  }
-}
-
-// Zoom map to show entire India
-function zoomToIndiaOverview() {
-  if (state.fullMap) {
-    state.fullMap.flyTo([20.5937, 78.9629], 5, { duration: 1.5 });
-  }
-}
-
-// Map filter buttons on Screen 2
-function filterMapHotspots(type) {
-  state.alertFilter = type;
-  ['All', 'Wildfire', 'Industrial'].forEach(t => {
-    const btn = document.getElementById(`filterMap${t}`);
-    if (btn) {
-      if (t.toLowerCase() === type) {
-        btn.className = 'px-3 py-1 rounded-md text-xs font-medium bg-sky-500 text-white shadow-sm';
-      } else {
-        btn.className = 'px-3 py-1 rounded-md text-xs font-medium bg-[#12203d] text-slate-300 hover:text-white';
-      }
-    }
-  });
-  renderHotspotMarkers();
-}
-
-/* =================================================================
-   7. SCREEN 1 CARDS (Live Alerts & Recent Classifications)
-   ================================================================= */
-function renderHomeCards() {
-  const alertsList = document.getElementById('homeAlertsList');
-  const classList = document.getElementById('homeClassificationsList');
-
-  // Render Alerts List
-  if (alertsList) {
-    if (!state.hotspots || state.hotspots.length === 0) {
-      alertsList.innerHTML = `
-        <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400">
-          <div class="w-10 h-10 rounded-full bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 mb-2">
-            <i class="fa-solid fa-satellite-dish"></i>
-          </div>
-          <div class="text-xs font-semibold text-slate-200">No Demo Fires Loaded</div>
-          <p class="text-[11px] text-slate-400 mt-1 max-w-[220px]">
-            Map is clean. Click <span class="text-sky-400 font-semibold cursor-pointer underline" onclick="locateUserPosition()">Locate Me</span> or type any city/reserve in search bar to scan live telemetry.
-          </p>
-        </div>
-      `;
-    } else {
-      alertsList.innerHTML = state.hotspots.slice(0, 4).map(spot => `
-        <div onclick="openHotspotModalById('${spot.id}')" class="p-2.5 rounded-lg bg-[#081022] hover:bg-[#12203d] border border-[#172a50] flex items-center justify-between cursor-pointer transition">
-          <div class="flex items-center gap-2.5">
-            <div class="w-7 h-7 rounded-md ${spot.type === 'wildfire' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-orange-500/10 text-orange-400 border border-orange-500/20'} flex items-center justify-center text-xs">
-              <i class="fa-solid ${spot.type === 'wildfire' ? 'fa-tree' : 'fa-industry'}"></i>
-            </div>
-            <div>
-              <div class="text-xs font-bold text-slate-200 leading-tight">${spot.type === 'wildfire' ? 'Wildfire' : 'Industrial Fire'}</div>
-              <div class="text-[10px] text-slate-400">${spot.location}</div>
-            </div>
-          </div>
-          <div class="text-[10px] font-mono text-slate-400">${spot.time}</div>
-        </div>
-      `).join('');
-    }
-  }
-
-  // Render Recent Classifications List
-  if (classList) {
-    if (!state.hotspots || state.hotspots.length === 0) {
-      classList.innerHTML = `
-        <div class="h-full flex flex-col items-center justify-center text-center p-4 text-slate-400">
-          <div class="w-10 h-10 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mb-2">
-            <i class="fa-solid fa-radar"></i>
-          </div>
-          <div class="text-xs font-semibold text-slate-200">Zero Thermal Anomalies</div>
-          <p class="text-[11px] text-slate-400 mt-1 max-w-[220px]">
-            AI classification engine is ready. Telemetry data will populate dynamically once your location is scanned.
-          </p>
-        </div>
-      `;
-    } else {
-      classList.innerHTML = state.hotspots.slice(0, 3).map(spot => `
-        <div onclick="openHotspotModalById('${spot.id}')" class="p-2 rounded-lg bg-[#081022] hover:bg-[#12203d] border border-[#172a50] flex items-center justify-between cursor-pointer transition">
-          <div class="flex items-center gap-2.5">
-            <img src="${spot.img}" class="w-9 h-9 rounded object-cover border border-[#213768]">
-            <div>
-              <div class="text-xs font-bold text-slate-200 leading-tight">${spot.type === 'wildfire' ? 'Wildfire' : 'Industrial Fire'}</div>
-              <div class="text-[10px] text-emerald-400 font-semibold">Confidence: ${spot.confidence}%</div>
-              <div class="text-[10px] text-slate-500">${spot.location}</div>
-            </div>
-          </div>
-          <div class="text-[10px] font-mono text-slate-400">${spot.time}</div>
-        </div>
-      `).join('');
-    }
-  }
-}
-
-/* =================================================================
-   8. SCREEN 3: ALERTS PAGE (Tabbed Grid & Filter)
-   ================================================================= */
-function renderAlertsPage() {
-  const container = document.getElementById('alertsContainer');
-  if (!container) return;
-
-  const filtered = state.hotspots.filter(spot => {
-    if (state.alertFilter === 'all') return true;
-    if (state.alertFilter === 'industrial') return spot.type === 'industrial';
-    if (state.alertFilter === 'wildfire') return spot.type === 'wildfire';
-    if (state.alertFilter === 'other') return spot.type === 'other';
-    return true;
-  });
-
-  // Update sidebar badge
-  const badge = document.getElementById('sidebarAlertBadge');
-  if (badge) badge.textContent = filtered.length;
-
-  if (filtered.length === 0) {
-    container.innerHTML = `
-      <div class="col-span-full py-16 text-center text-slate-400 fw-card p-8">
-        <div class="w-14 h-14 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 text-2xl mx-auto mb-3">
-          <i class="fa-solid fa-satellite"></i>
-        </div>
-        <h3 class="text-base font-bold text-white mb-1">No Demo Fire Locations Loaded</h3>
-        <p class="text-xs text-slate-400 max-w-md mx-auto mb-5">
-          This system contains zero pre-seeded fake coordinates. Use your live GPS position or search any city or reserve across India to scan real-time satellite telemetry.
-        </p>
-        <div class="flex items-center justify-center gap-3">
-          <button onclick="locateUserPosition()" class="px-4 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 text-white text-xs font-semibold shadow-lg shadow-sky-500/30 transition flex items-center gap-2">
-            <i class="fa-solid fa-location-crosshairs"></i> Scan My Live Location
-          </button>
-          <button onclick="document.getElementById('geoSearchInput')?.focus()" class="px-4 py-2 rounded-lg bg-[#12203d] hover:bg-[#1b2f57] border border-[#213768] text-slate-200 text-xs font-semibold transition">
-            Search A City
-          </button>
-        </div>
-      </div>
-    `;
-    return;
-  }
-
-  container.innerHTML = filtered.map(spot => `
-    <div class="fw-card p-4 flex flex-col justify-between hover:border-sky-500/40 transition">
-      <div>
-        <div class="flex items-center justify-between mb-2">
-          <span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wider ${
-            spot.type === 'wildfire' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 
-            (spot.type === 'industrial' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-slate-500/20 text-slate-300 border border-slate-500/30')
-          }">
-            ${spot.type}
-          </span>
-          <span class="text-[10px] font-mono text-slate-400">${spot.time}</span>
-        </div>
-
-        <h4 class="font-bold text-sm text-white">${spot.title}</h4>
-        <p class="text-xs text-slate-400 flex items-center gap-1 mt-1">
-          <i class="fa-solid fa-location-dot text-slate-500 text-[10px]"></i>
-          ${spot.location}
-        </p>
-
-        <div class="grid grid-cols-2 gap-2 mt-3 pt-2.5 border-t border-[#172a50] text-xs">
-          <div>
-            <span class="text-[10px] text-slate-500 block">AI Confidence</span>
-            <span class="font-bold text-emerald-400">${spot.confidence}%</span>
-          </div>
-          <div>
-            <span class="text-[10px] text-slate-500 block">Radiative Power</span>
-            <span class="font-mono text-amber-400">${spot.frp} MW</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="mt-4 pt-3 border-t border-[#172a50] flex items-center justify-between">
-        <span class="text-[10px] text-slate-500 font-mono">${spot.satellite}</span>
-        <button onclick="openHotspotModalById('${spot.id}')" class="px-3 py-1 rounded bg-[#12203d] hover:bg-sky-500 hover:text-white border border-[#213768] text-sky-400 text-xs font-semibold transition flex items-center gap-1">
-          <span>View</span>
-          <i class="fa-solid fa-angle-right text-[10px]"></i>
-        </button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function filterAlertsTab(tabType) {
-  state.alertFilter = tabType;
-  ['All', 'Industrial', 'Wildfire', 'Other'].forEach(t => {
-    const btn = document.getElementById(`tabAlert${t}`);
-    if (btn) {
-      if (t.toLowerCase() === tabType) {
-        btn.className = 'px-3 py-1.5 rounded-md text-xs font-bold bg-sky-500 text-white transition';
-      } else {
-        btn.className = 'px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white transition';
-      }
-    }
-  });
-  renderAlertsPage();
-}
-
-/* =================================================================
-   9. SCREEN 4: ANALYTICS & TREND CHARTS (Chart.js)
-   ================================================================= */
-function initAnalyticsCharts() {
-  const trendCtx = document.getElementById('fireTrendChart');
-  const distCtx = document.getElementById('fireDistributionChart');
-
-  if (!trendCtx || !distCtx) return;
-
-  // Destroy old charts if existing
-  if (state.charts.trend) state.charts.trend.destroy();
-  if (state.charts.distribution) state.charts.distribution.destroy();
-
-  // Chart Theme Defaults
-  Chart.defaults.color = '#94a3b8';
-  Chart.defaults.font.family = "'Inter', sans-serif";
-
-  // Trend Data Sets based on Range
-  const trendDataConfig = {
-    '7d': {
-      labels: ['Sep 02', 'Sep 03', 'Sep 04', 'Sep 05', 'Sep 06', 'Sep 07', 'Sep 08'],
-      wildfires: [12, 19, 14, 25, 22, 31, 28],
-      industrial: [6, 9, 8, 14, 11, 12, 10],
-      stubble: [3, 5, 4, 7, 5, 6, 5]
-    },
-    '30d': {
-      labels: ['W1', 'W2', 'W3', 'W4'],
-      wildfires: [45, 62, 58, 85],
-      industrial: [22, 30, 28, 38],
-      stubble: [10, 15, 18, 22]
-    },
-    '6m': {
-      labels: ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'],
-      wildfires: [120, 210, 185, 95, 80, 140],
-      industrial: [65, 80, 75, 55, 60, 72],
-      stubble: [45, 90, 30, 15, 25, 55]
-    }
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
   };
 
-  const selectedData = trendDataConfig[state.analyticsRange];
+  setText('stat-total', total);
+  setText('stat-wildfire', wildfires);
+  setText('stat-industrial', industrial);
+  setText('stat-agricultural', agricultural);
+  setText('stat-total-note', `Dataset records • ${new Set(csvDataset.map(d => d.acq_date)).size} dates`);
+  setText('stat-wildfire-note', wildfires ? `Highest-risk class • max FRP ${maxFrp.toFixed(2)} MW` : 'No records in this dataset');
+  setText('stat-industrial-note', `${industrial} records • FRP 15–40 MW`);
+  setText('stat-agricultural-note', `${agricultural} records • FRP below 15 MW`);
+}
 
-  // 1. Line Trend Chart
-  state.charts.trend = new Chart(trendCtx, {
-    type: 'line',
-    data: {
-      labels: selectedData.labels,
-      datasets: [
-        {
-          label: 'Wildfire',
-          data: selectedData.wildfires,
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239, 68, 68, 0.1)',
-          borderWidth: 2.5,
-          tension: 0.35,
-          pointBackgroundColor: '#ef4444',
-          pointRadius: 4,
-          fill: true
-        },
-        {
-          label: 'Industrial Fire',
-          data: selectedData.industrial,
-          borderColor: '#f97316',
-          backgroundColor: 'rgba(249, 115, 22, 0.1)',
-          borderWidth: 2.5,
-          tension: 0.35,
-          pointBackgroundColor: '#f97316',
-          pointRadius: 4,
-          fill: true
-        },
-        {
-          label: 'Stubble / Agri',
-          data: selectedData.stubble,
-          borderColor: '#eab308',
-          backgroundColor: 'rgba(234, 179, 8, 0.1)',
-          borderWidth: 2,
-          tension: 0.35,
-          pointBackgroundColor: '#eab308',
-          pointRadius: 3.5,
-          fill: true
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0c162b',
-          borderColor: '#1e3461',
-          borderWidth: 1,
-          padding: 10
-        }
-      },
-      scales: {
-        x: {
-          grid: { color: 'rgba(23, 42, 80, 0.5)' },
-          ticks: { color: '#64748b' }
-        },
-        y: {
-          grid: { color: 'rgba(23, 42, 80, 0.5)' },
-          ticks: { color: '#64748b' }
-        }
-      }
-    }
+function initAnalyticsCharts() {
+  const ctxTrend = document.getElementById('trendChart');
+  const ctxDist = document.getElementById('distChart');
+  if (!ctxTrend || !ctxDist) return;
+
+  updateAnalyticsSummary();
+
+  // Aggregate the uploaded dataset by acquisition date instead of plotting a hard-coded demo series.
+  const daily = {};
+  csvDataset.forEach(row => {
+    const date = row.acq_date || 'Unknown';
+    if (!daily[date]) daily[date] = { count: 0, frp: 0, temp: 0 };
+    daily[date].count += 1;
+    daily[date].frp += Number(row.frp) || 0;
+    daily[date].temp += Number(row.temp_celsius) || 0;
   });
 
-  // 2. Doughnut Distribution Chart (100% Normalized)
-  state.charts.distribution = new Chart(distCtx, {
-    type: 'doughnut',
+  const dates = Object.keys(daily).sort();
+  const labels = dates.map(d => {
+    const parts = d.split('-');
+    return parts.length === 3 ? `${parts[2]} Sep` : d;
+  });
+  const incidentCounts = dates.map(d => daily[d].count);
+
+  const note = document.getElementById('analyticsTrendNote');
+  if (note) {
+    const totalFrp = csvDataset.reduce((sum, row) => sum + (Number(row.frp) || 0), 0);
+    note.textContent = `${csvDataset.length} records • ${dates.length} acquisition dates • Total FRP ${totalFrp.toFixed(2)} MW`;
+  }
+
+  new Chart(ctxTrend.getContext('2d'), {
+    type: 'line',
     data: {
-      labels: ['Wildfire', 'Industrial', 'Stubble'],
+      labels,
       datasets: [{
-        data: [65, 25, 10],
-        backgroundColor: ['#ef4444', '#f97316', '#eab308'],
-        borderWidth: 3,
-        borderColor: '#0c162b',
-        hoverOffset: 6
+        label: 'Incidents',
+        data: incidentCounts,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59,130,246,.12)',
+        tension: 0.3,
+        fill: true
       }]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false,
-      cutout: '72%',
-      plugins: {
-        legend: { display: false },
-        tooltip: {
-          backgroundColor: '#0c162b',
-          borderColor: '#1e3461',
-          borderWidth: 1
-        }
-      }
-    }
-  });
-}
-
-function updateAnalyticsTimeRange(range) {
-  state.analyticsRange = range;
-  ['7d', '30d', '6m'].forEach(r => {
-    const btn = document.getElementById(`btnRange${r}`);
-    if (btn) {
-      if (r === range) {
-        btn.className = 'px-3 py-1.5 rounded-md text-xs font-bold bg-sky-500 text-white transition';
-      } else {
-        btn.className = 'px-3 py-1.5 rounded-md text-xs font-medium text-slate-400 hover:text-white transition';
+      plugins: { legend: { labels: { color: '#94a3b8' } } },
+      scales: {
+        x: { ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,.08)' } },
+        y: { beginAtZero: true, ticks: { color: '#64748b' }, grid: { color: 'rgba(148,163,184,.08)' } }
       }
     }
   });
 
-  // Update summary numbers randomly for realism
-  const mult = range === '7d' ? 1 : (range === '30d' ? 3.5 : 12);
-  document.getElementById('statTotalFires').textContent = Math.round(48 * mult);
-  document.getElementById('statWildfires').textContent = Math.round(31 * mult);
-  document.getElementById('statIndustrial').textContent = Math.round(12 * mult);
-  document.getElementById('statOther').textContent = Math.round(5 * mult);
+  const wildfires = csvDataset.filter(d => d.type === 'wildfire').length;
+  const industrial = csvDataset.filter(d => d.type === 'industrial').length;
+  const agricultural = csvDataset.filter(d => d.type === 'agricultural').length;
 
-  initAnalyticsCharts();
-}
-
-/* =================================================================
-   10. SCREEN 9: HIGH SEVERITY ALERT MODAL
-   ================================================================= */
-function openActiveHotspotModal() {
-  if (state.activeHotspot) {
-    showSeverityModal(state.activeHotspot);
-  }
-}
-
-function openHotspotModalById(id) {
-  const spot = state.hotspots.find(s => s.id === id);
-  if (spot) {
-    showSeverityModal(spot);
-  }
-}
-
-function showSeverityModal(spot) {
-  state.activeHotspot = spot;
-  const modal = document.getElementById('severityModal');
-  const sub = document.getElementById('modalAlertSubtitle');
-  const type = document.getElementById('modalType');
-  const loc = document.getElementById('modalLocation');
-  const conf = document.getElementById('modalConfidence');
-  const frp = document.getElementById('modalFRP');
-  const bright = document.getElementById('modalBrightnessTemp');
-  const sensor = document.getElementById('modalSensor');
-  const time = document.getElementById('modalTimestamp');
-  const img = document.getElementById('modalImg');
-
-  if (sub) sub.textContent = `${spot.title} near ${spot.location}`;
-  if (type) {
-    if (spot.type === 'wildfire') {
-      type.textContent = 'Forest Wildfire';
-      type.className = 'font-semibold text-red-400';
-    } else if (spot.type === 'industrial') {
-      type.textContent = 'Industrial Fire Hazard';
-      type.className = 'font-semibold text-orange-400';
-    } else {
-      type.textContent = 'Agricultural Stubble Burn';
-      type.className = 'font-semibold text-yellow-400';
-    }
-  }
-  if (loc) loc.textContent = spot.location;
-  if (conf) conf.textContent = `${spot.confidence}%`;
-  if (frp) frp.textContent = `${spot.frp} MW`;
-  if (bright) bright.textContent = `${spot.tempK} K (${(spot.tempK - 273.15).toFixed(1)}°C)`;
-  if (sensor) sensor.textContent = spot.satellite || 'VIIRS Suomi-NPP (375m)';
-  if (time) time.textContent = spot.timeExact || spot.time;
-  if (img) img.src = spot.img;
-
-  if (modal) {
-    modal.classList.remove('hidden');
-  }
-}
-
-function closeSeverityModal() {
-  const modal = document.getElementById('severityModal');
-  if (modal) {
-    modal.classList.add('hidden');
-  }
-}
-
-function dispatchSDRFAlert() {
-  closeSeverityModal();
-  showToast('Standard Operating Procedure (SOP) dispatched to SDRF & District Fire Station!', 'success');
-}
-
-function viewHotspotOnMapFromModal() {
-  closeSeverityModal();
-  switchTab('home');
-  if (state.activeHotspot && state.dashboardMap) {
-    state.dashboardMap.flyTo([state.activeHotspot.lat, state.activeHotspot.lng], 14, { duration: 1.5 });
-  }
-}
-
-/* =================================================================
-   10B. C-DOT / NDMA EMERGENCY SMS & EVACUATION PERIMETER SOP
-   ================================================================= */
-function openSmsModalForActive() {
-  const spot = state.activeHotspot;
-  if (!spot) return;
-
-  const modal = document.getElementById('smsModal');
-  const payloadBox = document.getElementById('smsPayloadText');
-  const charCount = document.getElementById('smsCharCount');
-
-  const locSlug = (spot.location || 'SECTOR1').replace(/[^a-zA-Z0-9]/g, '_').toUpperCase().slice(0, 16);
-  const typeSlug = (spot.type || 'WILDFIRE').toUpperCase();
-  const smsString = `ALERT#PS162#${typeSlug}#LOC:${locSlug}#LAT:${spot.lat.toFixed(2)}#LON:${spot.lng.toFixed(2)}#FRP:${spot.frp}MW#WIND:18KMH_NW#EVAC:2KM#CALL:1077`;
-
-  if (payloadBox) payloadBox.value = smsString;
-  if (charCount) charCount.textContent = `${smsString.length} / 140 Chars (GSM-7)`;
-  if (modal) modal.classList.remove('hidden');
-}
-
-function closeSmsModal() {
-  const modal = document.getElementById('smsModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function copySmsPayload() {
-  const payloadBox = document.getElementById('smsPayloadText');
-  if (payloadBox) {
-    navigator.clipboard.writeText(payloadBox.value);
-    showToast('SMS payload copied to clipboard!', 'success');
-  }
-}
-
-function simulateSmsBroadcast() {
-  showToast('Dispatched emergency SMS payload via NIC / C-DOT gateway to local towers!', 'success');
-  closeSmsModal();
-}
-
-function triggerEvacPerimeterForActive() {
-  const spot = state.activeHotspot;
-  if (!spot) return;
-
-  closeSeverityModal();
-  switchTab('home');
-
-  if (state.dashboardMap) {
-    state.dashboardMap.flyTo([spot.lat, spot.lng], 13);
-
-    // Clear previous evac layers
-    if (state.evacLayers) {
-      state.evacLayers.forEach(l => state.dashboardMap.removeLayer(l));
-    }
-    state.evacLayers = [];
-
-    // Draw 2km immediate danger ring
-    const ring2km = L.circle([spot.lat, spot.lng], {
-      radius: 2000,
-      color: '#ef4444',
-      fillColor: '#ef4444',
-      fillOpacity: 0.22,
-      weight: 2
-    }).addTo(state.dashboardMap).bindTooltip('2.0 km Immediate Evacuation Perimeter', { permanent: true, direction: 'top' });
-
-    // Draw 5km advisory smoke ring
-    const ring5km = L.circle([spot.lat, spot.lng], {
-      radius: 5000,
-      color: '#eab308',
-      dashArray: '6, 6',
-      fillColor: '#eab308',
-      fillOpacity: 0.08,
-      weight: 1.5
-    }).addTo(state.dashboardMap).bindTooltip('5.0 km Smoke & Ember Advisory Zone');
-
-    state.evacLayers.push(ring2km, ring5km);
-    showToast(`Plotted 2km & 5km evacuation perimeters for ${spot.location}`, 'warning');
-  }
-}
-
-/* =================================================================
-   10C. WIND VECTOR & DYNAMIC FIRE SPREAD PREDICTION CONE
-   ================================================================= */
-function toggleSpreadVector() {
-  state.showSpreadVector = !state.showSpreadVector;
-  const btn = document.getElementById('btnSpreadVector');
-  if (btn) {
-    if (state.showSpreadVector) {
-      btn.classList.add('active');
-    } else {
-      btn.classList.remove('active');
-    }
-  }
-  renderSpreadVectors();
-}
-
-function renderSpreadVectors() {
-  // Clear old spread layers
-  if (state.spreadLayers) {
-    state.spreadLayers.forEach(l => {
-      if (state.dashboardMap) state.dashboardMap.removeLayer(l);
-      if (state.fullMap) state.fullMap.removeLayer(l);
-    });
-  }
-  state.spreadLayers = [];
-
-  if (!state.showSpreadVector) return;
-
-  const wildfires = state.hotspots.filter(h => h.type === 'wildfire');
-  if (wildfires.length === 0) {
-    showToast('No active wildfires in view for spread simulation.', 'info');
-    return;
-  }
-
-  // Wind vector: blowing toward Northwest (315 degrees) at 18 km/h
-  const angleRad = (315 * Math.PI) / 180;
-  const spreadDist2h = 0.045; // approx 4-5 km
-  const spreadDist6h = 0.095; // approx 10 km
-
-  wildfires.forEach(wf => {
-    // 2h cone
-    const tip2 = [wf.lat + spreadDist2h * Math.cos(angleRad), wf.lng + spreadDist2h * Math.sin(angleRad)];
-    const left2 = [wf.lat + (spreadDist2h * 0.7) * Math.cos(angleRad - 0.45), wf.lng + (spreadDist2h * 0.7) * Math.sin(angleRad - 0.45)];
-    const right2 = [wf.lat + (spreadDist2h * 0.7) * Math.cos(angleRad + 0.45), wf.lng + (spreadDist2h * 0.7) * Math.sin(angleRad + 0.45)];
-    const poly2h = [[wf.lat, wf.lng], left2, tip2, right2];
-
-    // 6h cone
-    const tip6 = [wf.lat + spreadDist6h * Math.cos(angleRad), wf.lng + spreadDist6h * Math.sin(angleRad)];
-    const left6 = [wf.lat + (spreadDist6h * 0.7) * Math.cos(angleRad - 0.55), wf.lng + (spreadDist6h * 0.7) * Math.sin(angleRad - 0.55)];
-    const right6 = [wf.lat + (spreadDist6h * 0.7) * Math.cos(angleRad + 0.55), wf.lng + (spreadDist6h * 0.7) * Math.sin(angleRad + 0.55)];
-    const poly6h = [[wf.lat, wf.lng], left6, tip6, right6];
-
-    if (state.dashboardMap) {
-      const cone6 = L.polygon(poly6h, {
-        color: '#f97316',
-        dashArray: '4, 4',
-        fillColor: '#f97316',
-        fillOpacity: 0.15,
-        weight: 1.5
-      }).addTo(state.dashboardMap).bindTooltip('6-Hour Fire Risk Zone (Wind: 18 km/h NW)', { sticky: true });
-
-      const cone2 = L.polygon(poly2h, {
-        color: '#ef4444',
-        fillColor: '#ef4444',
-        fillOpacity: 0.35,
-        weight: 2
-      }).addTo(state.dashboardMap).bindTooltip('2-Hour Critical Spread Perimeter', { sticky: true });
-
-      state.spreadLayers.push(cone6, cone2);
-    }
-  });
-
-  showToast('Fire spread vectors simulated (Wind: 18 km/h NW).', 'warning');
-}
-
-function filterMapHotspots(type) {
-  ['All', 'Wildfire', 'Industrial', 'Stubble'].forEach(t => {
-    const btn = document.getElementById(`filterMap${t}`);
-    if (btn) {
-      if (t.toLowerCase() === type.toLowerCase()) {
-        btn.className = 'px-3 py-1 rounded-md text-xs font-medium bg-sky-500 text-white shadow-sm';
-      } else {
-        btn.className = 'px-3 py-1 rounded-md text-xs font-medium bg-[#12203d] text-slate-300 hover:text-white';
-      }
-    }
-  });
-
-  state.alertFilter = type;
-  renderHotspotMarkers();
-}
-
-/* =================================================================
-   10D. CONNECT LAPTOP DATABASE / CSV / JSON IMPORT
-   ================================================================= */
-function openDbConnectModal() {
-  const modal = document.getElementById('dbConnectModal');
-  if (modal) modal.classList.remove('hidden');
-}
-
-function closeDbConnectModal() {
-  const modal = document.getElementById('dbConnectModal');
-  if (modal) modal.classList.add('hidden');
-}
-
-function switchDbTab(tab) {
-  state.dbTab = tab;
-  ['file', 'api', 'preset'].forEach(t => {
-    const btn = document.getElementById(`tabDb${t.charAt(0).toUpperCase() + t.slice(1)}`);
-    const view = document.getElementById(`dbView${t.charAt(0).toUpperCase() + t.slice(1)}`);
-    if (btn) {
-      if (t === tab) {
-        btn.className = 'flex-1 py-1.5 rounded text-xs font-semibold bg-sky-500 text-white transition';
-      } else {
-        btn.className = 'flex-1 py-1.5 rounded text-xs font-medium text-slate-400 hover:text-white transition';
-      }
-    }
-    if (view) {
-      if (t === tab) view.classList.remove('hidden');
-      else view.classList.add('hidden');
+  new Chart(ctxDist.getContext('2d'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Wildfire', 'Industrial Fire', 'Agricultural'],
+      datasets: [{
+        data: [wildfires, industrial, agricultural],
+        backgroundColor: ['#a855f7', '#ff5722', '#eab308']
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#94a3b8' } } }
     }
   });
 }
 
-function handleFileDatabaseUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
+function toggleChat() {
+  const chatBox = document.getElementById('chatBox');
+  if (chatBox) chatBox.classList.toggle('open');
+}
 
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const content = e.target.result;
-    let parsedHotspots = [];
 
-    if (file.name.endsWith('.json') || file.type.includes('json')) {
-      parsedHotspots = parseJsonDataset(content);
-    } else {
-      parsedHotspots = parseCsvDataset(content);
-    }
+function escapeAI(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
 
-    if (parsedHotspots.length > 0) {
-      state.importedHotspots = parsedHotspots;
-      const summary = document.getElementById('dbImportSummary');
-      const countEl = document.getElementById('dbImportCount');
-      if (summary) summary.classList.remove('hidden');
-      if (countEl) countEl.textContent = `Successfully parsed ${parsedHotspots.length} fire records from ${file.name}`;
-      showToast(`Loaded ${parsedHotspots.length} records! Click 'Plot All On GIS Map'.`, 'success');
-    } else {
-      showToast('Could not find latitude/longitude columns in your file. Please check file format.', 'error');
-    }
+function addAIMessage(html, isBot = true) {
+  const messages = document.getElementById('chatMessages');
+  if (!messages) return;
+  const el = document.createElement('div');
+  el.className = isBot ? 'msg bot' : 'msg user';
+  if (isBot) el.innerHTML = html; else el.textContent = html;
+  messages.appendChild(el);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function runAICommand(command) {
+  const input = document.getElementById('chatInput');
+  if (input) input.value = command;
+  sendChatMessage();
+}
+
+function getTopRiskIncidents(limit = 5) {
+  return csvDataset.map(row => ({row, score:getRiskScore(row)})).sort((a,b)=>b.score-a.score).slice(0, limit);
+}
+
+function getTopFRPIncidents(limit = 5) {
+  return [...csvDataset].sort((a,b)=>(Number(b.frp)||0)-(Number(a.frp)||0)).slice(0, limit);
+}
+
+function getTypeCounts() {
+  return {
+    wildfire: csvDataset.filter(d => d.type === 'wildfire').length,
+    industrial: csvDataset.filter(d => d.type === 'industrial').length,
+    agricultural: csvDataset.filter(d => d.type === 'agricultural').length
   };
-  reader.readAsText(file);
 }
 
-function parseCsvDataset(csvText) {
-  const lines = csvText.trim().split(/\r?\n/);
-  if (lines.length < 2) return [];
-
-  const delimiter = lines[0].includes('\t') ? '\t' : (lines[0].includes(';') ? ';' : ',');
-  const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase().replace(/["']/g, ''));
-
-  const latIdx = headers.findIndex(h => ['lat', 'latitude', 'y', 'decimallatitude'].includes(h));
-  const lngIdx = headers.findIndex(h => ['lon', 'lng', 'long', 'longitude', 'x', 'decimallongitude'].includes(h));
-  const frpIdx = headers.findIndex(h => ['frp', 'power', 'intensity', 'fire_radiative_power'].includes(h));
-  const confIdx = headers.findIndex(h => ['confidence', 'conf', 'confidence_level'].includes(h));
-  const typeIdx = headers.findIndex(h => ['type', 'category', 'classification', 'class'].includes(h));
-  const locIdx = headers.findIndex(h => ['location', 'place', 'name', 'city', 'district', 'state'].includes(h));
-
-  if (latIdx === -1 || lngIdx === -1) return [];
-
-  const results = [];
-  for (let i = 1; i < lines.length; i++) {
-    const cols = lines[i].split(delimiter).map(c => c.trim().replace(/["']/g, ''));
-    if (cols.length <= Math.max(latIdx, lngIdx)) continue;
-
-    const lat = parseFloat(cols[latIdx]);
-    const lng = parseFloat(cols[lngIdx]);
-    if (isNaN(lat) || isNaN(lng)) continue;
-
-    const frp = frpIdx !== -1 && !isNaN(parseFloat(cols[frpIdx])) ? parseFloat(cols[frpIdx]) : parseFloat((20 + Math.random() * 50).toFixed(1));
-    const conf = confIdx !== -1 && !isNaN(parseInt(cols[confIdx])) ? parseInt(cols[confIdx]) : Math.floor(75 + Math.random() * 23);
-    const rawType = typeIdx !== -1 ? cols[typeIdx].toLowerCase() : (frp > 60 ? 'industrial' : 'wildfire');
-    let type = 'wildfire';
-    if (rawType.includes('ind') || rawType.includes('flare')) type = 'industrial';
-    else if (rawType.includes('stub') || rawType.includes('agri') || rawType.includes('crop')) type = 'stubble';
-
-    const location = locIdx !== -1 && cols[locIdx] ? cols[locIdx] : `Sector (${lat.toFixed(2)}, ${lng.toFixed(2)})`;
-
-    results.push({
-      id: `custom-csv-${Date.now()}-${i}`,
-      type: type,
-      title: type === 'wildfire' ? 'Wildfire Hotspot' : (type === 'industrial' ? 'Industrial Flare' : 'Stubble Burn Cluster'),
-      location: location,
-      lat: lat,
-      lng: lng,
-      confidence: conf,
-      frp: frp,
-      tempK: parseFloat((320 + Math.random() * 40).toFixed(1)),
-      satellite: 'Local Database Telemetry',
-      time: 'Just now',
-      timeExact: new Date().toLocaleTimeString(),
-      severity: conf > 90 ? 'Critical' : 'High',
-      img: type === 'industrial'
-        ? 'https://images.unsplash.com/photo-1542385151-efd9000785a0?q=80&w=400&auto=format&fit=crop'
-        : 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop'
-    });
-  }
-  return results;
+function aiAnalyzeData() {
+  const counts = getTypeCounts();
+  const totalFRP = csvDataset.reduce((s,r)=>s+(Number(r.frp)||0),0);
+  const avgFRP = csvDataset.length ? totalFRP/csvDataset.length : 0;
+  const maxTemp = csvDataset.reduce((a,b)=>(Number(a.temp_celsius)||0)>(Number(b.temp_celsius)||0)?a:b, csvDataset[0]);
+  const dates = [...new Set(csvDataset.map(r=>r.acq_date).filter(Boolean))].sort();
+  return `📊 <strong>PyroVision Data Analysis</strong><br>Total incidents: <strong>${csvDataset.length}</strong><br>• Agricultural: ${counts.agricultural}<br>• Industrial: ${counts.industrial}<br>• Wildfire: ${counts.wildfire}<br>• Total FRP: <strong>${totalFRP.toFixed(2)} MW</strong><br>• Average FRP: ${avgFRP.toFixed(2)} MW<br>• Acquisition dates: ${dates.join(', ') || 'N/A'}<br>• Highest temperature: ${maxTemp ? `${Number(maxTemp.temp_celsius).toFixed(1)}°C at ${Number(maxTemp.latitude).toFixed(3)}, ${Number(maxTemp.longitude).toFixed(3)}` : 'N/A'}<div class="ai-action-row"><button onclick="switchView('analytics', document.querySelectorAll('.nav-item')[3])">Open Analytics</button></div>`;
 }
 
-function parseJsonDataset(jsonText) {
-  try {
-    const data = JSON.parse(jsonText);
-    const array = Array.isArray(data) ? data : (data.features || data.fires || data.hotspots || data.data || []);
-    const results = [];
-
-    array.forEach((item, idx) => {
-      let lat = item.lat || item.latitude || (item.geometry && item.geometry.coordinates ? item.geometry.coordinates[1] : null);
-      let lng = item.lng || item.lon || item.longitude || (item.geometry && item.geometry.coordinates ? item.geometry.coordinates[0] : null);
-
-      if (lat && lng && !isNaN(parseFloat(lat)) && !isNaN(parseFloat(lng))) {
-        lat = parseFloat(lat);
-        lng = parseFloat(lng);
-        const props = item.properties || item;
-        const frp = parseFloat(props.frp || props.power || (25 + Math.random() * 45).toFixed(1));
-        const conf = parseInt(props.confidence || props.conf || 88);
-        const rawType = (props.type || 'wildfire').toLowerCase();
-        let type = 'wildfire';
-        if (rawType.includes('ind') || rawType.includes('flare')) type = 'industrial';
-        else if (rawType.includes('stub') || rawType.includes('agri')) type = 'stubble';
-
-        results.push({
-          id: `custom-json-${Date.now()}-${idx}`,
-          type: type,
-          title: props.title || (type === 'industrial' ? 'Industrial Thermal Flare' : (type === 'stubble' ? 'Stubble Burn' : 'Forest Fire Anomaly')),
-          location: props.location || props.name || `Latitude ${lat.toFixed(2)}, Longitude ${lng.toFixed(2)}`,
-          lat: lat,
-          lng: lng,
-          confidence: conf,
-          frp: frp,
-          tempK: parseFloat(props.tempK || (325 + Math.random() * 35).toFixed(1)),
-          satellite: props.satellite || 'Imported Database',
-          time: props.time || 'Live Synced',
-          timeExact: new Date().toLocaleTimeString(),
-          severity: conf > 90 ? 'Critical' : 'High',
-          img: type === 'industrial' 
-            ? 'https://images.unsplash.com/photo-1542385151-efd9000785a0?q=80&w=400&auto=format&fit=crop'
-            : 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop'
-        });
-      }
-    });
-    return results;
-  } catch (err) {
-    console.error('JSON parse error:', err);
-    return [];
-  }
+function aiShowTopFRP(limit=5) {
+  const rows = getTopFRPIncidents(limit);
+  const list = rows.map((r,i)=>`${i+1}. <strong>${escapeAI(r.title)}</strong> — FRP ${Number(r.frp).toFixed(2)} MW • Risk ${getRiskScore(r)}/100`).join('<br>');
+  const top = rows[0];
+  return `⚡ <strong>Top ${rows.length} incidents by FRP</strong><br>${list}<div class="ai-action-row"><button onclick="focusOnMap(${top.longitude}, ${top.latitude})">Show #1 on Map</button></div>`;
 }
 
+function aiShowHighRisk(limit=5) {
+  const rows = getTopRiskIncidents(limit);
+  const list = rows.map((x,i)=>`${i+1}. <strong>${escapeAI(x.row.title)}</strong> — Risk ${x.score}/100 (${getRiskLevel(x.score)}) • FRP ${Number(x.row.frp).toFixed(2)} MW`).join('<br>');
+  const top = rows[0];
+  return `🚨 <strong>Top ${rows.length} high-risk incidents</strong><br>${list}<div class="ai-action-row"><button onclick="focusOnMap(${top.row.longitude}, ${top.row.latitude})">Show highest risk on Map</button><button onclick="showHighRiskAlerts()">Open filtered Alerts</button></div>`;
+}
 
-function loadPresetDataset(name) {
-  let list = [];
-  if (name === 'india_top_hotspots') {
-    list = [
-      { id: 'in-1', type: 'wildfire', title: 'Simlipal Forest Canopy Fire', location: 'Mayurbhanj, Odisha', lat: 21.85, lng: 86.32, confidence: 94, frp: 68.4, tempK: 348.2, satellite: 'VIIRS Suomi-NPP (375m)', time: '8 min ago', severity: 'Critical', img: 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-2', type: 'wildfire', title: 'Bandipur Core Forest Fire', location: 'Chamarajanagar, Karnataka', lat: 11.66, lng: 76.63, confidence: 91, frp: 52.1, tempK: 339.5, satellite: 'Aqua MODIS (1km)', time: '14 min ago', severity: 'High', img: 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-3', type: 'industrial', title: 'HPCL Refinery Flare Stack', location: 'Visakhapatnam, Andhra Pradesh', lat: 17.68, lng: 83.21, confidence: 96, frp: 88.5, tempK: 362.0, satellite: 'VIIRS NOAA-20 (375m)', time: '22 min ago', severity: 'High', img: 'https://images.unsplash.com/photo-1542385151-efd9000785a0?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-4', type: 'industrial', title: 'Mundra Petrochem Terminal Flare', location: 'Kutch, Gujarat', lat: 22.84, lng: 69.71, confidence: 93, frp: 74.2, tempK: 355.8, satellite: 'VIIRS Suomi-NPP (375m)', time: '35 min ago', severity: 'High', img: 'https://images.unsplash.com/photo-1542385151-efd9000785a0?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-5', type: 'stubble', title: 'Wheat Stubble Agricultural Burning', location: 'Bathinda, Punjab', lat: 30.21, lng: 74.95, confidence: 89, frp: 34.6, tempK: 328.4, satellite: 'Terra MODIS (1km)', time: '41 min ago', severity: 'Moderate', img: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-6', type: 'stubble', title: 'Paddy Residue Farm Fire', location: 'Karnal, Haryana', lat: 29.68, lng: 76.99, confidence: 87, frp: 29.8, tempK: 324.6, satellite: 'Aqua MODIS (1km)', time: '55 min ago', severity: 'Moderate', img: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop' },
-      { id: 'in-7', type: 'wildfire', title: 'Jim Corbett Buffer Fire', location: 'Nainital, Uttarakhand', lat: 29.53, lng: 78.77, confidence: 92, frp: 61.3, tempK: 344.0, satellite: 'VIIRS Suomi-NPP (375m)', time: '1 hr ago', severity: 'Critical', img: 'https://images.unsplash.com/photo-1499529112087-3cb3b73cec95?q=80&w=400&auto=format&fit=crop' }
-    ];
+function showHighRiskAlerts() {
+  switchView('alerts', document.querySelectorAll('.nav-item')[2]);
+  const body = document.getElementById('alertsTableBody');
+  if (!body) return;
+  const rows = getTopRiskIncidents(10);
+  body.querySelectorAll('tr').forEach(tr => tr.style.display='none');
+  // Rebuild the table with the selected high-risk records so the filter is meaningful.
+  body.innerHTML = rows.map(({row,score}) => `<tr><td>${escapeAI(row.title)}</td><td>Lat: ${Number(row.latitude).toFixed(5)}, Lon: ${Number(row.longitude).toFixed(5)}</td><td>${row.frp} MW</td><td>${row.temp_celsius} °C</td><td>${escapeAI(row.confidence)}</td><td><span class="risk-badge ${getRiskClass(getRiskLevel(score))}">${getRiskLevel(score)} ${score}</span></td><td><button class="btn-action" onclick="focusOnMap(${row.longitude}, ${row.latitude})">View on Map</button></td></tr>`).join('');
+}
+
+function aiLocationList(query) {
+  let rows = csvDataset;
+  const nearDelhi = /delhi|new delhi/.test(query);
+  if (nearDelhi) {
+    rows = [...csvDataset].sort((a,b)=>{
+      const da=Math.hypot(a.latitude-28.6139,a.longitude-77.2090);
+      const db=Math.hypot(b.latitude-28.6139,b.longitude-77.2090);
+      return da-db;
+    }).slice(0,5);
   } else {
-    list = [
-      { id: 'st-1', type: 'stubble', title: 'Farm Crop Residue Burning', location: 'Sangrur, Punjab', lat: 30.24, lng: 75.84, confidence: 93, frp: 41.2, tempK: 332.1, satellite: 'VIIRS (375m)', time: '10 min ago', severity: 'High', img: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop' },
-      { id: 'st-2', type: 'stubble', title: 'Agricultural Straw Fire', location: 'Ludhiana Rural, Punjab', lat: 30.90, lng: 75.85, confidence: 90, frp: 38.0, tempK: 330.5, satellite: 'MODIS (1km)', time: '20 min ago', severity: 'Moderate', img: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop' },
-      { id: 'st-3', type: 'stubble', title: 'Wheat Stubble Anomaly', location: 'Kaithal, Haryana', lat: 29.80, lng: 76.40, confidence: 88, frp: 32.5, tempK: 327.2, satellite: 'VIIRS (375m)', time: '30 min ago', severity: 'Moderate', img: 'https://images.unsplash.com/photo-1500382017468-9049fed747ef?q=80&w=400&auto=format&fit=crop' }
-    ];
+    rows = csvDataset.slice(0,5);
   }
-
-  state.importedHotspots = list;
-  applyImportedHotspotsToMap();
+  const list = rows.map((r,i)=>`${i+1}. ${escapeAI(r.title)} — ${Number(r.latitude).toFixed(4)}, ${Number(r.longitude).toFixed(4)} • FRP ${Number(r.frp).toFixed(2)} MW`).join('<br>');
+  const top=rows[0];
+  return `📍 <strong>Incident locations</strong><br>${list}<div class="ai-action-row">${top?`<button onclick="focusOnMap(${top.longitude}, ${top.latitude})">Show first on Map</button>`:''}</div>`;
 }
 
-function triggerSampleHighAlert() {
-  const randomSpot = state.hotspots[Math.floor(Math.random() * state.hotspots.length)];
-  showSeverityModal(randomSpot);
+function aiExplainIncident(query) {
+  const ranked = getTopRiskIncidents(1)[0];
+  if (!ranked) return 'No incident data is available.';
+  const r=ranked.row, score=ranked.score;
+  const frp=Number(r.frp)||0, temp=Number(r.temp_celsius)||0;
+  const conf=String(r.confidence||'').toLowerCase();
+  const reasons=[];
+  if(frp>=25) reasons.push(`high FRP (${frp.toFixed(2)} MW)`); else if(frp>=15) reasons.push(`moderate FRP (${frp.toFixed(2)} MW)`); else reasons.push(`lower FRP (${frp.toFixed(2)} MW)`);
+  if(temp>=320) reasons.push(`high thermal reading (${temp.toFixed(1)}°C)`); else reasons.push(`thermal reading of ${temp.toFixed(1)}°C`);
+  if(conf.includes('high')) reasons.push('high detection confidence'); else if(conf.includes('nominal')) reasons.push('nominal detection confidence'); else reasons.push(`${conf || 'unknown'} detection confidence`);
+  return `🧠 <strong>Why this incident is ${getRiskLevel(score).toLowerCase()}</strong><br>${escapeAI(r.title)} has a risk score of <strong>${score}/100</strong> based on ${reasons.join(', ')}. This is a prototype rule-based explanation, not a trained ML diagnosis.<div class="ai-action-row"><button onclick="focusOnMap(${r.longitude}, ${r.latitude})">View on Map</button><button onclick="refreshWeather(${r.latitude}, ${r.longitude}, 'Incident Location')">Check Weather</button></div>`;
 }
 
-/* =================================================================
-   11. OMNIPRESENT AI DISASTER CHATBOT (Screen 7 Everywhere)
-   ================================================================= */
-function toggleChatbot() {
-  state.chatOpen = !state.chatOpen;
-  const win = document.getElementById('aiChatbotWindow');
-  if (win) {
-    if (state.chatOpen) {
-      win.classList.remove('hidden');
-      document.getElementById('chatInput')?.focus();
-    } else {
-      win.classList.add('hidden');
-    }
+function aiGenerateIncidentReport() {
+  printIncidentReport();
+  return `📄 <strong>Incident report prepared.</strong><br>The browser print dialog has been opened. Choose <strong>Save as PDF</strong> to export the PyroVision report.`;
+}
+
+function aiSmartFilter(query) {
+  const thresholdMatch = query.match(/frp\s*(?:above|over|greater than)\s*(\d+(?:\.\d+)?)/i);
+  if (thresholdMatch) {
+    const threshold=Number(thresholdMatch[1]);
+    const rows=csvDataset.filter(r=>(Number(r.frp)||0)>threshold).sort((a,b)=>(Number(b.frp)||0)-(Number(a.frp)||0));
+    switchView('alerts', document.querySelectorAll('.nav-item')[2]);
+    const body=document.getElementById('alertsTableBody');
+    if(body) body.innerHTML=rows.map(r=>`<tr><td>${escapeAI(r.title)}</td><td>Lat: ${Number(r.latitude).toFixed(5)}, Lon: ${Number(r.longitude).toFixed(5)}</td><td>${r.frp} MW</td><td>${r.temp_celsius} °C</td><td>${escapeAI(r.confidence)}</td><td><span class="risk-badge ${getRiskClass(getRiskLevel(getRiskScore(r)))}">${getRiskLevel(getRiskScore(r))} ${getRiskScore(r)}</span></td><td><button class="btn-action" onclick="focusOnMap(${r.longitude}, ${r.latitude})">View on Map</button></td></tr>`).join('');
+    return `🔎 Found <strong>${rows.length}</strong> incidents with FRP above ${threshold} MW. The Alerts table is now filtered.`;
   }
+  return null;
 }
 
-function sendPresetQuery(text) {
+function sendChatMessage() {
   const input = document.getElementById('chatInput');
-  if (input) input.value = text;
-  handleUserSendMessage();
-}
-
-function handleUserSendMessage() {
-  const input = document.getElementById('chatInput');
-  if (!input) return;
-  const message = input.value.trim();
-  if (!message) return;
-
-  // Append user message
-  appendChatMessage(message, 'user');
+  const messages = document.getElementById('chatMessages');
+  if (!input || !messages) return;
+  const text = input.value.trim();
+  if (!text) return;
+  addAIMessage(text, false);
   input.value = '';
-
-  // Simulate AI Thinking Indicator
-  const chatMessages = document.getElementById('chatMessages');
-  const typingId = `typing-${Date.now()}`;
-  const typingEl = document.createElement('div');
-  typingEl.id = typingId;
-  typingEl.className = 'flex gap-2 items-center text-slate-400 text-xs italic pl-2';
-  typingEl.innerHTML = `
-    <i class="fa-solid fa-robot text-sky-400 animate-spin"></i>
-    <span>Analyzing NASA telemetry & disaster protocols...</span>
-  `;
-  chatMessages.appendChild(typingEl);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-
+  const query = text.toLowerCase();
   setTimeout(() => {
-    typingEl.remove();
-    const botReply = generateAIResponse(message);
-    appendChatMessage(botReply, 'assistant');
-  }, 750);
-}
-
-function appendChatMessage(htmlContent, sender) {
-  const chatMessages = document.getElementById('chatMessages');
-  if (!chatMessages) return;
-
-  const msgDiv = document.createElement('div');
-  msgDiv.className = `flex gap-2.5 items-start ${sender === 'user' ? 'justify-end' : ''}`;
-
-  if (sender === 'user') {
-    msgDiv.innerHTML = `
-      <div class="bg-sky-600 text-white rounded-2xl rounded-tr-none p-3 shadow-sm leading-relaxed max-w-[85%]">
-        ${escapeHtml(htmlContent)}
-      </div>
-      <div class="w-7 h-7 rounded bg-sky-500 text-white flex items-center justify-center shrink-0 text-xs font-bold">
-        You
-      </div>
-    `;
-  } else {
-    msgDiv.innerHTML = `
-      <div class="w-7 h-7 rounded bg-sky-500/20 border border-sky-500/40 text-sky-400 flex items-center justify-center shrink-0 text-xs">
-        <i class="fa-solid fa-robot"></i>
-      </div>
-      <div class="bg-[#12203d] border border-[#1e3461] rounded-2xl rounded-tl-none p-3 text-slate-200 shadow-sm leading-relaxed max-w-[85%]">
-        ${htmlContent}
-      </div>
-    `;
-  }
-
-  chatMessages.appendChild(msgDiv);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
-}
-
-// Context-Aware Disaster AI Response Engine
-function generateAIResponse(query) {
-  const q = query.toLowerCase();
-
-  // Check if user is asking to search/fly to a place
-  if (q.includes('show') || q.includes('go to') || q.includes('search') || q.includes('fly to') || q.includes('locate')) {
-    const matchedCity = query.replace(/(show|go to|search|fly to|locate|fires in|fires near)/gi, '').trim();
-    if (matchedCity.length > 2) {
-      handleSearchLocation(matchedCity);
-      return `Targeting GIS sensors on <strong>${matchedCity}</strong>! Leaflet map is smoothly repositioning and populating real-time NASA FIRMS thermal anomaly clusters.`;
+    let reply;
+    const filtered = aiSmartFilter(query);
+    if (filtered) reply = filtered;
+    else if (/^(hello|hi|hey)\b/.test(query)) reply = 'Hello! I can analyze your fire dataset, explain risk, filter incidents, control the map, check weather, and prepare reports.';
+    else if ((query.includes('show') || query.includes('find')) && (query.includes('high-risk') || query.includes('high risk') || query.includes('danger'))) reply = aiShowHighRisk(5);
+    else if (query.includes('top') && (query.includes('frp') || query.includes('radiative power'))) reply = aiShowTopFRP(5);
+    else if (query.includes('analy') || query.includes('summary') || query.includes('overview') || query.includes('today')) reply = aiAnalyzeData();
+    else if (query.includes('why') && (query.includes('risk') || query.includes('danger') || query.includes('high'))) reply = aiExplainIncident(query);
+    else if (query.includes('report') || query.includes('pdf')) reply = aiGenerateIncidentReport();
+    else if (query.includes('weather') && (query.includes('highest') || query.includes('risk') || query.includes('fire') || query.includes('incident'))) {
+      const top=getTopRiskIncidents(1)[0];
+      reply=`🌦️ Checking weather at the highest-risk incident...<div class="ai-action-row"><button onclick="refreshWeather(${top.row.latitude}, ${top.row.longitude}, 'Highest-Risk Incident')">Load Weather</button></div>`;
+      refreshWeather(top.row.latitude, top.row.longitude, 'Highest-Risk Incident');
     }
-  }
-
-  if (q.includes('wildfire') && q.includes('identify')) {
-    return `
-      <strong>How to Identify Wildfires:</strong><br>
-      Wildfires appear as <strong>Red Hotspot Dots</strong> on the map.<br><br>
-      • <strong>Visual Cues:</strong> Surrounded by a pulsing red radar ring.<br>
-      • <strong>Telemetry:</strong> Characterized by lower FRP (Fire Radiative Power) density spread over wider vegetative terrain, accompanied by high SWIR/NIR reflectance.<br>
-      • <strong>Classification:</strong> Model confidence &gt; 85% indicates verified biomass combustion.
-    `;
-  }
-
-  if (q.includes('frp') || q.includes('fire radiative power')) {
-    return `
-      <strong>Fire Radiative Power (FRP):</strong><br>
-      FRP is measured in <strong>Megawatts (MW)</strong> and quantifies the instantaneous radiant energy output from combustion.<br><br>
-      • FRP &lt; 20 MW: Low-intensity surface burn or stubble residue.<br>
-      • FRP 20–50 MW: Moderate wildfire or industrial flare.<br>
-      • FRP &gt; 50 MW: <em>High severity emergency</em> requiring immediate aerial drops or SDRF deployment.
-    `;
-  }
-
-  if (q.includes('evacuat') || q.includes('protocol') || q.includes('sop')) {
-    return `
-      <strong>Disaster Mitigation SOP & Evacuation:</strong><br>
-      1. <strong>Perimeter Cordage:</strong> Establish a 2.5 km downwind exclusion zone.<br>
-      2. <strong>Priority Broadcast:</strong> Trigger automated SMS alerts via NDMA gateway to local village gram panchayats.<br>
-      3. <strong>SDRF Deployment:</strong> Dispatch nearest quick-response foam tenders and water tankers.<br>
-      4. <strong>Wind Vector Tracking:</strong> Monitor live wind velocity to forecast spread vectors.
-    `;
-  }
-
-  // Default helpful response
-  return `
-    I have processed your query regarding <em>"${escapeHtml(query)}"</em>.<br><br>
-    As part of the <strong>PyroVision PyroVision Command System</strong>, you can use the top search bar to inspect any forest division or industrial park in India. Let me know if you need specific SOP procedures or satellite sensor explanations!
-  `;
+    else if (query.includes('weather') || query.includes('temperature') || query.includes('wind')) reply='🌤️ The weather card uses the currently selected map/incident location. You can also ask “weather at highest-risk fire”.';
+    else if (query.includes('where') || query.includes('location') || query.includes('coords')) reply=aiLocationList(query);
+    else if (query.includes('wildfire') || query.includes('industrial') || query.includes('agricultural')) {
+      const type=query.includes('wildfire')?'wildfire':query.includes('industrial')?'industrial':'agricultural';
+      const rows=csvDataset.filter(d=>d.type===type);
+      reply=`📊 <strong>${rows.length}</strong> ${type} incidents found.<div class="ai-action-row"><button onclick="switchView('alerts', document.querySelectorAll('.nav-item')[2])">Open Alerts</button></div>`;
+    }
+    else if (query.includes('how many') || query.includes('total incident') || query.includes('total fire')) reply=aiAnalyzeData();
+    else if (query.includes('map') || query.includes('zoom') || query.includes('show on map')) {
+      const top=getTopRiskIncidents(1)[0];
+      reply=`🗺️ I can control the map. The highest-risk incident is ready to display.<div class="ai-action-row"><button onclick="focusOnMap(${top.row.longitude}, ${top.row.latitude})">Zoom to Highest Risk</button></div>`;
+    }
+    else reply='Try: “show high-risk fires on map”, “top 5 fires by FRP”, “analyze today”, “FRP above 20”, “why is this fire high risk?”, “weather at highest-risk fire”, or “generate incident report”.';
+    addAIMessage(reply, true);
+  }, 300);
 }
 
-function clearChatMessages() {
-  const box = document.getElementById('chatMessages');
-  if (box) {
-    box.innerHTML = `
-      <div class="flex gap-2.5 items-start">
-        <div class="w-7 h-7 rounded bg-sky-500/20 border border-sky-500/40 text-sky-400 flex items-center justify-center shrink-0 text-xs">
-          <i class="fa-solid fa-robot"></i>
-        </div>
-        <div class="bg-[#12203d] border border-[#1e3461] rounded-2xl rounded-tl-none p-3 text-slate-200 shadow-sm leading-relaxed max-w-[85%] text-xs">
-          Chat cleared. Ready for your operational commands, Officer.
-        </div>
-      </div>
-    `;
-  }
+function handleKeyPress(e) {
+  if (e.key === 'Enter') sendChatMessage();
 }
 
-/* =================================================================
-   12. MISCELLANEOUS UTILITIES
-   ================================================================= */
-function refreshSatelliteFeeds() {
-  showToast('Synchronizing latest NASA FIRMS VIIRS orbit pass...', 'info');
-  const indicator = document.getElementById('firmsLastUpdate');
-  if (indicator) {
-    indicator.textContent = 'Last updated: Just now (Pass SUOMI-NPP)';
-  }
-  setTimeout(() => {
-    showToast('Telemetry updated with zero latency.', 'success');
-  }, 800);
+function initEnhancedFeatures() {
+  updateRiskSummary(csvDataset);
+  renderRiskRanking(csvDataset);
+  refreshWeather();
+  if (window.lucide) lucide.createIcons();
 }
 
-function downloadMockReport(filename) {
-  showToast(`Compiling and exporting ${filename}...`, 'info');
-  setTimeout(() => {
-    // Trigger mock download
-    const element = document.createElement('a');
-    element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(`PyroVision Disaster Incident Report\nGenerated for: SIH Problem Statement 162\nTimestamp: ${new Date().toISOString()}\nTelemetry Source: NASA FIRMS\nSeverity: Verified\n`));
-    element.setAttribute('download', filename);
-    element.style.display = 'none';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-    showToast(`Downloaded ${filename} successfully!`, 'success');
-  }, 1000);
-}
-
-function clearSystemCache() {
-  showToast('GIS offline raster tiles and telemetry cache purged.', 'info');
-}
-
-// Toast notification banner
-function showToast(message, type = 'info') {
-  const existing = document.getElementById('fwToast');
-  if (existing) existing.remove();
-
-  const toast = document.createElement('div');
-  toast.id = 'fwToast';
-  const bgClass = type === 'success' ? 'bg-emerald-600' : (type === 'error' ? 'bg-red-600' : (type === 'warning' ? 'bg-amber-600' : 'bg-sky-600'));
-
-  toast.className = `fixed top-5 right-5 z-[300] px-4 py-2.5 rounded-lg text-white text-xs font-semibold shadow-2xl flex items-center gap-2 ${bgClass} transition duration-300`;
-  toast.innerHTML = `
-    <i class="fa-solid ${type === 'success' ? 'fa-circle-check' : (type === 'error' ? 'fa-triangle-exclamation' : 'fa-circle-info')}"></i>
-    <span>${escapeHtml(message)}</span>
-  `;
-
-  document.body.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(-10px)';
-    setTimeout(() => toast.remove(), 300);
-  }, 3200);
-}
-
-function escapeHtml(string) {
-  const div = document.createElement('div');
-  div.appendChild(document.createTextNode(string));
-  return div.innerHTML;
-}
+document.addEventListener('DOMContentLoaded', () => {
+  setTimeout(initEnhancedFeatures, 800);
+});
